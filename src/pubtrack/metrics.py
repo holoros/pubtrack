@@ -105,7 +105,7 @@ def paper_table(con, run_id: int, source: str) -> list[dict]:
 
 
 def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, float]:
-    run = con.execute("SELECT snapshot_date FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    run = con.execute("SELECT snapshot_date, author_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     cur_year = date.fromisoformat(run["snapshot_date"]).year
     papers = paper_table(con, run_id, source)
     if not papers:
@@ -159,8 +159,9 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
     if source == "scholar":
         hist = con.execute(
             "SELECT r.snapshot_date, p.total_citations FROM profile_snapshots p JOIN runs r USING (run_id) "
-            "WHERE p.total_citations IS NOT NULL AND r.origin = 'sync' AND r.snapshot_date > date(?, '-365 days') AND r.snapshot_date <= ? "
-            "ORDER BY r.snapshot_date", (run["snapshot_date"], run["snapshot_date"]),
+            "WHERE r.author_id = ? AND p.total_citations IS NOT NULL AND r.origin = 'sync' "
+            "AND r.snapshot_date > date(?, '-365 days') AND r.snapshot_date <= ? "
+            "ORDER BY r.snapshot_date", (run["author_id"], run["snapshot_date"], run["snapshot_date"]),
         ).fetchall()
         if len(hist) >= MIN_VELOCITY_POINTS:
             v = ols_slope_per_year([r[0] for r in hist], [r[1] for r in hist])
@@ -171,12 +172,12 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
 
 def interim_rate(con, run_id: int) -> float | None:
     """Mean OpenAlex citations per year over the last two complete years (used until velocity exists)."""
-    run = con.execute("SELECT snapshot_date FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    run = con.execute("SELECT snapshot_date, author_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     y = date.fromisoformat(run["snapshot_date"]).year
     r = con.execute(
         "SELECT SUM(c.citations) FROM work_year_counts c JOIN works w USING (work_id) "
-        "WHERE c.source = 'openalex' AND c.year IN (?, ?) AND w.excluded = 0 AND w.merged_into IS NULL",
-        (y - 1, y - 2),
+        "WHERE w.author_id = ? AND c.source = 'openalex' AND c.year IN (?, ?) AND w.excluded = 0 "
+        "AND w.merged_into IS NULL", (run["author_id"], y - 1, y - 2),
     ).fetchone()[0]
     return r / 2 if r is not None else None
 

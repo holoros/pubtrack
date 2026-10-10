@@ -14,6 +14,10 @@ SELECT = ",".join([
 ])
 
 
+# Not scholarly output in the citation sense; kept out so they never inflate paper counts.
+SKIP_TYPES = {"erratum", "retraction", "paratext", "peer-review", "grant", "supplementary-materials"}
+
+
 class OpenAlexError(RuntimeError):
     pass
 
@@ -29,7 +33,13 @@ def _params(mailto: str, api_key: str, **kw) -> dict:
 
 def _get(path: str, params: dict, tries: int = 4) -> dict:
     for i in range(tries):
-        r = requests.get(f"{BASE}{path}", params=params, timeout=60)
+        try:
+            r = requests.get(f"{BASE}{path}", params=params, timeout=60)
+        except requests.RequestException as e:
+            if i < tries - 1:
+                time.sleep(2 ** (i + 1))
+                continue
+            raise OpenAlexError(f"OpenAlex request failed on {path}: {e}") from e
         if r.status_code == 200:
             return r.json()
         if r.status_code in (429, 500, 502, 503) and i < tries - 1:
@@ -88,8 +98,9 @@ def _author_fields(work: dict, author_ids: set[str], surname: str) -> tuple[str,
 def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: str, today: str) -> int:
     """Upsert by openalex_id. Works not yet linked to a Scholar record are stored as OpenAlex only rows;
     matching.reconcile() pairs them with Scholar rows afterwards."""
-    from .db import norm_title
+    from .db import norm_title, run_author
 
+    author = run_author(con, run_id)
     ids = set(author_ids)
     n = 0
     for w in works:
@@ -97,10 +108,13 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
         title = (w.get("display_name") or "").strip()
         if not oid or not title:
             continue
+        if (w.get("type") or "") in SKIP_TYPES:
+            continue
         doi = (w.get("doi") or "").replace("https://doi.org/", "").lower() or None
         authors, n_auth, pos, is_last = _author_fields(w, ids, surname)
         venue = (((w.get("primary_location") or {}).get("source")) or {}).get("display_name")
-        row = con.execute("SELECT work_id FROM works WHERE openalex_id = ?", (oid,)).fetchone()
+        row = con.execute("SELECT work_id FROM works WHERE author_id = ? AND openalex_id = ?",
+                          (author, oid)).fetchone()
         if row:
             work_id = row["work_id"]
             con.execute(
@@ -110,10 +124,10 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
             )
         else:
             cur = con.execute(
-                "INSERT INTO works(openalex_id, doi, title, title_norm, year, venue, authors, n_authors, "
+                "INSERT INTO works(author_id, openalex_id, doi, title, title_norm, year, venue, authors, n_authors, "
                 "author_position, is_last_author, match_method, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
-                (oid, doi, title, norm_title(title), w.get("publication_year"), venue, authors, n_auth,
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
+                (author, oid, doi, title, norm_title(title), w.get("publication_year"), venue, authors, n_auth,
                  pos, is_last, today, today),
             )
             work_id = cur.lastrowid

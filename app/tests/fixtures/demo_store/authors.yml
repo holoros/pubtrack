@@ -1,0 +1,21 @@
+settings:
+  scholar_via: none
+authors:
+  - id: demo-senior
+    name: Avery Senior
+    openalex_id: A1
+    first_year: 2002
+    scholar_id: DEMO-SENIOR
+    group: demo
+  - id: demo-mid
+    name: Blake Middle
+    openalex_id: A2
+    first_year: 2010
+    scholar_id: DEMO-MID
+    group: demo
+  - id: demo-early
+    name: Casey Early
+    openalex_id: A3
+    first_year: 2018
+    scholar_id: DEMO-EARLY
+    group: demo

@@ -72,14 +72,16 @@ def merge_pair(con, gs_work_id: int, oa_work_id: int, method: str, score: float 
     con.execute("DELETE FROM works WHERE work_id = ?", (oa_work_id,))
 
 
-def reconcile(con) -> dict:
+def reconcile(con, author_id: str) -> dict:
     gs_rows = con.execute(
         "SELECT w.work_id, w.doi, w.title_norm, w.year, COALESCE(("
         "  SELECT s.citations FROM work_snapshots s WHERE s.work_id = w.work_id AND s.source = 'scholar' "
         "  ORDER BY s.run_id DESC LIMIT 1), 0) AS cites FROM works w "
-        "WHERE w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.merged_into IS NULL").fetchall()
+        "WHERE w.author_id = ? AND w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.merged_into IS NULL",
+        (author_id,)).fetchall()
     oa_rows = con.execute(
-        "SELECT work_id, doi, title_norm, year FROM works WHERE gs_id IS NULL AND openalex_id IS NOT NULL").fetchall()
+        "SELECT work_id, doi, title_norm, year FROM works WHERE author_id = ? AND gs_id IS NULL "
+        "AND openalex_id IS NOT NULL", (author_id,)).fetchall()
     def ydiff(g, o):
         return abs(g["year"] - o["year"]) if g["year"] and o["year"] else 9
 
@@ -98,8 +100,9 @@ def reconcile(con) -> dict:
         counts[method] += 1
     con.commit()
     counts["unmatched_scholar"] = con.execute(
-        "SELECT COUNT(*) FROM works WHERE gs_id IS NOT NULL AND openalex_id IS NULL "
-        "AND merged_into IS NULL AND excluded = 0").fetchone()[0]
+        "SELECT COUNT(*) FROM works WHERE author_id = ? AND gs_id IS NOT NULL AND openalex_id IS NULL "
+        "AND merged_into IS NULL AND excluded = 0", (author_id,)).fetchone()[0]
     counts["openalex_only"] = con.execute(
-        "SELECT COUNT(*) FROM works WHERE gs_id IS NULL AND openalex_id IS NOT NULL").fetchone()[0]
+        "SELECT COUNT(*) FROM works WHERE author_id = ? AND gs_id IS NULL AND openalex_id IS NOT NULL",
+        (author_id,)).fetchone()[0]
     return counts

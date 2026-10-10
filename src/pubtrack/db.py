@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import re
-import shutil
 import sqlite3
 import unicodedata
 from datetime import date, datetime, timezone
 from importlib import resources
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+
+class SchemaError(RuntimeError):
+    pass
 
 
 def utcnow() -> str:
@@ -26,35 +29,39 @@ def norm_title(title: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    path.parent.mkdir(parents=True, exist_ok=True)
+def connect(path: Path | str) -> sqlite3.Connection:
+    if str(path) != ":memory:":
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path)
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
-    con.execute("PRAGMA journal_mode = WAL")   # dashboard can read while sync writes
+    if str(path) != ":memory:":
+        con.execute("PRAGMA journal_mode = WAL")
     return con
 
 
-def init_schema(con: sqlite3.Connection, db_path: Path | None = None) -> None:
-    current = None
+def schema_version(con: sqlite3.Connection) -> int | None:
     try:
         row = con.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
-        current = int(row[0]) if row else None
+        return int(row[0]) if row else None
     except sqlite3.OperationalError:
-        pass
-    if current is not None and current < SCHEMA_VERSION and db_path and db_path.exists():
-        backup = db_path.with_name(f"{db_path.stem}_PREV_{date.today():%Y%m%d}{db_path.suffix}")
-        shutil.copy2(db_path, backup)
+        return None
+
+
+def init_schema(con: sqlite3.Connection) -> None:
+    current = schema_version(con)
+    if current is not None and current < SCHEMA_VERSION:
+        raise SchemaError(f"Database is schema v{current}; import it with `pubtrack import-v1 DB --author ID`.")
     sql = resources.files("pubtrack").joinpath("schema.sql").read_text()
     con.executescript(sql)
     con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
     con.commit()
 
 
-def new_run(con: sqlite3.Connection, snapshot_date: str | None = None, origin: str = "sync") -> int:
+def new_run(con: sqlite3.Connection, author_id: str, snapshot_date: str | None = None, origin: str = "sync") -> int:
     cur = con.execute(
-        "INSERT INTO runs(started, snapshot_date, origin) VALUES (?, ?, ?)",
-        (utcnow(), snapshot_date or date.today().isoformat(), origin),
+        "INSERT INTO runs(author_id, started, snapshot_date, origin) VALUES (?, ?, ?, ?)",
+        (author_id, utcnow(), snapshot_date or date.today().isoformat(), origin),
     )
     con.commit()
     return int(cur.lastrowid)
@@ -71,6 +78,13 @@ def add_flag(con: sqlite3.Connection, run_id: int, kind: str, detail: str, work_
     con.execute("INSERT INTO flags(run_id, work_id, kind, detail) VALUES (?, ?, ?, ?)", (run_id, work_id, kind, detail))
 
 
-def latest_run(con: sqlite3.Connection, require: str | None = None) -> sqlite3.Row | None:
-    where = f"WHERE {require}_status = 'ok'" if require else ""
-    return con.execute(f"SELECT * FROM runs {where} ORDER BY snapshot_date DESC, run_id DESC LIMIT 1").fetchone()
+def run_author(con: sqlite3.Connection, run_id: int) -> str:
+    return con.execute("SELECT author_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()[0]
+
+
+def latest_run(con: sqlite3.Connection, author_id: str, require: str | None = None) -> sqlite3.Row | None:
+    where = "WHERE author_id = ?"
+    if require:
+        where += f" AND {require}_status = 'ok'"
+    return con.execute(f"SELECT * FROM runs {where} ORDER BY snapshot_date DESC, run_id DESC LIMIT 1",
+                       (author_id,)).fetchone()

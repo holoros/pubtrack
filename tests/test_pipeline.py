@@ -7,8 +7,26 @@ from pathlib import Path
 import pytest
 
 from pubtrack import config as cfgmod
-from pubtrack import export, metrics, overrides, scholar, openalex, sync as syncmod
+from pubtrack import export, metrics, overrides, scholar, openalex, store, sync as syncmod
 from pubtrack.db import connect, init_schema
+
+FIXTURE_V1 = Path(__file__).resolve().parents[1] / "app" / "tests" / "fixtures" / "demo_v1.sqlite"
+AUTHORS_YML = """
+settings:
+  scholar_via: scholarly
+  serpapi_monthly_budget: 10
+authors:
+  - id: auth
+    name: Aaron R. Weiskittel
+    scholar_id: AUTH
+    openalex_id: A999
+    scholar_cadence: weekly
+  - id: peer
+    name: Pat Peer
+    scholar_id: PEER
+    openalex_id: A555
+    scholar_cadence: monthly
+"""
 
 GS_WORKS = [
     {"gs_id": "AUTH:p1", "title": "A generalized Beta regression model for crown ratio", "year": 2010, "venue": "For Sci", "citations": 40},
@@ -40,16 +58,11 @@ OA_WORKS = [
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    cfg_path = tmp_path / "config.toml"
-    monkeypatch.setenv("PUBTRACK_CONFIG", str(cfg_path))
-    cfgmod.write_template(cfg_path)
-    cfgmod.set_value("author", "scholar_id", "AUTH", cfg_path)
-    cfgmod.set_value("author", "openalex_id", "A999", cfg_path)
-    cfgmod.set_value("storage", "db_path", str(tmp_path / "t.sqlite"), cfg_path)
-    cfg = cfgmod.load(cfg_path)
-    con = connect(cfg.db_path)
-    init_schema(con, cfg.db_path)
-
+    yml = tmp_path / "authors.yml"
+    yml.write_text(AUTHORS_YML)
+    cfg = cfgmod.load(yml)
+    con = connect(":memory:")
+    init_schema(con)
     state = {"gs": [dict(w) for w in GS_WORKS], "fail": False, "h": 3}
 
     def fake_gs(*a, **k):
@@ -64,9 +77,13 @@ def env(tmp_path, monkeypatch):
     return con, cfg, state
 
 
+def S(con, cfg, d, author="auth", **k):
+    return syncmod.sync(con, cfg, cfg.author(author), snapshot_date=d, **k)
+
+
 def test_first_sync(env):
     con, cfg, _ = env
-    st = syncmod.sync(con, cfg, snapshot_date="2026-10-04")
+    st = S(con, cfg, "2026-10-04")
     assert st["scholar_status"] == "ok" and st["openalex_status"] == "ok"
     mt = st["matching"]
     assert mt["title_exact"] >= 1 and mt["title_fuzzy"] + mt["title_exact"] == 3
@@ -84,12 +101,12 @@ def test_first_sync(env):
 
 def test_overrides_and_checks(env):
     con, cfg, state = env
-    syncmod.sync(con, cfg, snapshot_date="2026-10-04")
-    overrides.add(con, "merge", "AUTH:p4", "AUTH:p2")
-    overrides.add(con, "exclude", "AUTH:p5")
+    S(con, cfg, "2026-10-04")
+    overrides.add(con, "auth", "merge", "AUTH:p4", "AUTH:p2")
+    overrides.add(con, "auth", "exclude", "AUTH:p5")
     state["gs"][0]["citations"] = 30          # drop of 10 -> flagged
     state["h"] = 9                            # forces an h mismatch flag
-    st = syncmod.sync(con, cfg, snapshot_date="2026-10-11")
+    st = S(con, cfg, "2026-10-11")
     ms = st["metrics_scholar"]
     assert ms["n_papers"] == 3                # p4 folded into p2, p5 excluded
     assert ms["citations"] == 30 + 28 + 12
@@ -100,7 +117,7 @@ def test_overrides_and_checks(env):
 def test_scholar_failure_keeps_openalex(env):
     con, cfg, state = env
     state["fail"] = True
-    st = syncmod.sync(con, cfg, snapshot_date="2026-10-04")
+    st = S(con, cfg, "2026-10-04")
     assert st["scholar_status"] == "failed" and st["openalex_status"] == "ok"
     assert "metrics_openalex" in st and "metrics_scholar" not in st
     assert con.execute("SELECT message FROM runs WHERE run_id = ?", (st["run_id"],)).fetchone()[0].startswith("Scholar")
@@ -111,17 +128,17 @@ def test_velocity_after_eight_weeks(env):
     d0 = date(2026, 8, 2)
     for i in range(9):
         state["gs"][0]["citations"] = 40 + 2 * i
-        st = syncmod.sync(con, cfg, snapshot_date=(d0 + timedelta(weeks=i)).isoformat())
+        st = S(con, cfg, (d0 + timedelta(weeks=i)).isoformat())
     v = st["metrics_scholar"]["velocity_per_year"]
     assert v == pytest.approx(2 * 365.25 / 7, rel=1e-6)
 
 
 def test_exports_and_pop_import(env, tmp_path):
     con, cfg, _ = env
-    syncmod.sync(con, cfg, snapshot_date="2026-10-04")
-    rows = export.paper_rows(con)
+    S(con, cfg, "2026-10-04")
+    rows = export.paper_rows(con, "auth")
     assert len(rows) == 6 and rows[0]["scholar_citations"] == 40
-    paths = export.annual_summary(con, 2015, tmp_path)
+    paths = export.annual_summary(con, "auth", 2015, tmp_path)
     assert all(p.exists() for p in paths)
 
     pop = tmp_path / "pop.csv"
@@ -131,6 +148,66 @@ def test_exports_and_pop_import(env, tmp_path):
         w.writerow([20, "A Weiskittel", "A generalized Beta regression model for crown ratio", 2010, "For Sci", "2019-05-01 10:00:00"])
         w.writerow([9, "A Weiskittel", "Maximum stand density for mixed species stands", 2015, "FEM", "2019-05-01 10:00:00"])
         w.writerow([1, "Someone", "Not on the profile at all", 2012, "X", "2019-05-01 10:00:00"])
-    res = export.import_pop(con, pop)
+    res = export.import_pop(con, "auth", pop)
     assert res["snapshot_date"] == "2019-05-01" and res["loaded"] == 2 and len(res["skipped"]) == 1
     assert con.execute("SELECT value FROM metrics WHERE run_id = ? AND metric = 'h'", (res["run_id"],)).fetchone()[0] == 2
+
+
+
+def test_two_authors_share_a_paper(env):
+    con, cfg, _ = env
+    a = S(con, cfg, "2026-10-04", "auth")
+    b = S(con, cfg, "2026-10-04", "peer")
+    assert a["openalex_status"] == b["openalex_status"] == "ok"
+    # the same OpenAlex work is stored once per author, each matched to that author's Scholar entry
+    rows = con.execute("SELECT author_id, gs_id FROM works WHERE openalex_id = 'W1' ORDER BY author_id").fetchall()
+    assert [tuple(r) for r in rows] == [("auth", "AUTH:p1"), ("peer", "AUTH:p1")]
+    assert a["metrics_scholar"]["h"] == b["metrics_scholar"]["h"] == 3
+    # metrics of one author never read the other's runs
+    assert con.execute("SELECT COUNT(DISTINCT author_id) FROM runs").fetchone()[0] == 2
+
+
+def test_csv_round_trip(env, tmp_path):
+    con, cfg, state = env
+    S(con, cfg, "2026-10-04")
+    overrides.add(con, "auth", "exclude", "AUTH:p5")
+    S(con, cfg, "2026-10-11")
+    d1 = tmp_path / "d1"
+    store.save(con, d1)
+    con2 = store.load(d1)
+    d2 = tmp_path / "d2"
+    store.save(con2, d2)
+    for f in d1.glob("*.csv"):
+        assert f.read_bytes() == (d2 / f.name).read_bytes(), f.name
+    # ids keep counting after a reload
+    st = S(con2, cfg, "2026-10-18")
+    assert st["run_id"] == 3
+    assert con2.execute("SELECT COUNT(*) FROM works WHERE author_id = 'auth'").fetchone()[0] == 6
+
+
+def test_plan_cadence_and_budget(env):
+    con, cfg, _ = env
+    cfg.settings.scholar_via = "serpapi"
+    today = date(2026, 10, 10)
+    p = {x.author.id: x for x in syncmod.plan(con, cfg, today=today)}
+    # budget 10, both new authors guessed at 5 each: both fit
+    assert p["auth"].scholar and p["peer"].scholar and p["auth"].openalex
+    con.execute("INSERT INTO runs(author_id, started, snapshot_date, origin, scholar_status, openalex_status, "
+                "serpapi_calls, n_scholar) VALUES ('auth', ?, '2026-10-08', 'sync', 'ok', 'ok', 6, 350)",
+                (today.isoformat() + "T03:00:00+00:00",))
+    p = {x.author.id: x for x in syncmod.plan(con, cfg, today=today)}
+    assert not p["auth"].scholar and not p["auth"].openalex           # synced 2 days ago
+    assert p["peer"].scholar is False and "deferred" in p["peer"].reason  # 10 - 6 = 4 left < 5 needed
+    assert p["peer"].openalex                                          # OpenAlex never waits on the budget
+
+
+def test_import_v1(env):
+    con, cfg, _ = env
+    S(con, cfg, "2026-10-04", "peer")
+    n = export.import_v1(con, FIXTURE_V1, "auth")
+    assert n["runs"] == 18 and n["works"] > 30
+    assert con.execute("SELECT COUNT(*) FROM runs WHERE author_id = 'auth'").fetchone()[0] == 18
+    assert con.execute("PRAGMA foreign_key_check").fetchall() == []
+    # the imported author syncs on top of its history
+    st = S(con, cfg, "2026-10-12", "auth")
+    assert st["scholar_status"] == "ok"

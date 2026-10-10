@@ -64,10 +64,14 @@ def via_scholarly(scholar_id: str, min_delay: float = 10, max_delay: float = 25)
 
 
 def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
-    """Paid fallback through SerpAPI's google_scholar_author engine."""
+    """SerpAPI google_scholar_author engine (free tier: 250 searches a month). Each page of up to
+    100 articles is one search; the count is returned as data["serpapi_calls"]."""
+    if not api_key:
+        raise ScholarBlocked("SERPAPI_KEY is not set")
     url = "https://serpapi.com/search.json"
-    works, start, first = [], 0, None
+    works, start, first, calls = [], 0, None, 0
     while True:
+        calls += 1
         r = requests.get(url, params={
             "engine": "google_scholar_author", "author_id": scholar_id,
             "num": 100, "start": start, "api_key": api_key,
@@ -108,18 +112,20 @@ def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
     }
     if not works:
         raise ScholarBlocked("SerpAPI returned no articles")
-    return {"profile": profile, "works": works}
+    return {"profile": profile, "works": works, "serpapi_calls": calls}
 
 
 def store(con, run_id: int, data: dict, today: str) -> int:
-    """Upsert works by gs_id and write this run's Scholar snapshot. Returns n works."""
-    from .db import norm_title
+    """Upsert works by (author, gs_id) and write this run's Scholar snapshot. Returns n works."""
+    from .db import norm_title, run_author
 
+    author = run_author(con, run_id)
     n = 0
     for w in data["works"]:
         if not w["gs_id"] or not w["title"]:
             continue
-        row = con.execute("SELECT work_id FROM works WHERE gs_id = ?", (w["gs_id"],)).fetchone()
+        row = con.execute("SELECT work_id FROM works WHERE author_id = ? AND gs_id = ?",
+                          (author, w["gs_id"])).fetchone()
         if row:
             work_id = row["work_id"]
             con.execute(
@@ -129,9 +135,9 @@ def store(con, run_id: int, data: dict, today: str) -> int:
             )
         else:
             cur = con.execute(
-                "INSERT INTO works(gs_id, title, title_norm, year, venue, match_method, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, 'none', ?, ?)",
-                (w["gs_id"], w["title"], norm_title(w["title"]), w["year"], w["venue"], today, today),
+                "INSERT INTO works(author_id, gs_id, title, title_norm, year, venue, match_method, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'none', ?, ?)",
+                (author, w["gs_id"], w["title"], norm_title(w["title"]), w["year"], w["venue"], today, today),
             )
             work_id = cur.lastrowid
         con.execute(

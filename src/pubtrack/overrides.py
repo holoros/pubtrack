@@ -10,35 +10,35 @@ PRE = ("set_doi", "set_openalex")          # before automatic matching
 POST = ("merge", "exclude", "include", "set_year")
 
 
-def add(con, action: str, gs_id: str, target: str | None = None, note: str | None = None) -> int:
+def add(con, author_id: str, action: str, gs_id: str, target: str | None = None, note: str | None = None) -> int:
     if action not in ACTIONS:
         raise ValueError(f"action must be one of {ACTIONS}")
     if action in ("merge", "set_year", "set_doi", "set_openalex") and not target:
         raise ValueError(f"{action} needs a target")
     cur = con.execute(
-        "INSERT INTO overrides(created, action, gs_id, target, note) VALUES (?, ?, ?, ?, ?)",
-        (utcnow(), action, gs_id, target, note),
+        "INSERT INTO overrides(author_id, created, action, gs_id, target, note) VALUES (?, ?, ?, ?, ?, ?)",
+        (author_id, utcnow(), action, gs_id, target, note),
     )
     con.commit()
     return int(cur.lastrowid)
 
 
-def _work_id(con, gs_id):
-    r = con.execute("SELECT work_id FROM works WHERE gs_id = ?", (gs_id,)).fetchone()
+def _work_id(con, author_id, gs_id):
+    r = con.execute("SELECT work_id FROM works WHERE author_id = ? AND gs_id = ?", (author_id, gs_id)).fetchone()
     return r["work_id"] if r else None
 
 
-def apply(con, phase: str, run_id: int | None = None) -> list[str]:
+def apply(con, author_id: str, phase: str, run_id: int | None = None) -> list[str]:
     from .db import add_flag
 
     actions = PRE if phase == "pre" else POST
     notes = []
     rows = con.execute(
-        f"SELECT * FROM overrides WHERE active = 1 AND action IN ({','.join('?' * len(actions))}) ORDER BY override_id",
-        actions,
+        f"SELECT * FROM overrides WHERE active = 1 AND author_id = ? AND action IN ({','.join('?' * len(actions))}) "
+        "ORDER BY override_id", (author_id, *actions),
     ).fetchall()
     for o in rows:
-        wid = _work_id(con, o["gs_id"])
+        wid = _work_id(con, author_id, o["gs_id"])
         if wid is None:
             notes.append(f"override {o['override_id']}: {o['gs_id']} not on profile this run")
             continue
@@ -52,7 +52,7 @@ def apply(con, phase: str, run_id: int | None = None) -> list[str]:
         elif a == "set_doi":
             con.execute("UPDATE works SET doi = ? WHERE work_id = ?", (t.lower().replace("https://doi.org/", ""), wid))
         elif a == "merge":
-            tid = _work_id(con, t)
+            tid = _work_id(con, author_id, t)
             if tid is None:
                 notes.append(f"override {o['override_id']}: merge target {t} not found")
                 continue
@@ -61,7 +61,8 @@ def apply(con, phase: str, run_id: int | None = None) -> list[str]:
             cur = con.execute("SELECT openalex_id FROM works WHERE work_id = ?", (wid,)).fetchone()["openalex_id"]
             if cur == t:
                 continue
-            oa = con.execute("SELECT work_id, gs_id FROM works WHERE openalex_id = ?", (t,)).fetchone()
+            oa = con.execute("SELECT work_id, gs_id FROM works WHERE author_id = ? AND openalex_id = ?",
+                             (author_id, t)).fetchone()
             if oa is None:
                 notes.append(f"override {o['override_id']}: OpenAlex {t} not fetched yet")
             elif oa["gs_id"] is None:
