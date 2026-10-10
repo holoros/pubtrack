@@ -1,0 +1,9 @@
+[Unit]
+Description=pubtrack weekly Google Scholar and OpenAlex snapshot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=@PUBTRACK@ sync
+Nice=10

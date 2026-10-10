@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.egg-info/
+*.sqlite
+*.sqlite-*
+.pytest_cache/
+!r/tests/fixtures/demo.sqlite
