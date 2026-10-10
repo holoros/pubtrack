@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pubtrack"
 version = "0.2.0"
 description = "Google Scholar and OpenAlex bibliometrics for tracked authors, with a CSV data store and Shinylive dashboard"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
   "requests>=2.31",
   "rapidfuzz>=3.0",

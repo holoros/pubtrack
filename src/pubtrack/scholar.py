@@ -63,6 +63,13 @@ def via_scholarly(scholar_id: str, min_delay: float = 10, max_delay: float = 25)
     return {"profile": profile, "works": works}
 
 
+def _json(r) -> dict:
+    try:
+        return r.json()
+    except ValueError:
+        return {"error": "response was not JSON"}
+
+
 def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
     """SerpAPI google_scholar_author engine (free tier: 250 searches a month). Each page of up to
     100 articles is one search; the count is returned as data["serpapi_calls"]."""
@@ -76,11 +83,11 @@ def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
             "engine": "google_scholar_author", "author_id": scholar_id,
             "num": 100, "start": start, "api_key": api_key,
         }, timeout=timeout)
-        if r.status_code != 200:
-            raise ScholarBlocked(f"SerpAPI HTTP {r.status_code}: {r.text[:200]}")
-        js = r.json()
-        if "error" in js:
-            raise ScholarBlocked(f"SerpAPI error: {js['error']}")
+        js = _json(r)
+        if r.status_code != 200 or "error" in js:
+            err = ScholarBlocked(f"SerpAPI HTTP {r.status_code}: {js.get('error') or r.text[:200]}")
+            err.serpapi_calls = calls - 1  # SerpAPI does not charge failed searches; earlier pages were charged
+            raise err
         first = first or js
         arts = js.get("articles", [])
         for a in arts:
@@ -91,7 +98,7 @@ def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
                 "venue": a.get("publication"),
                 "citations": _int((a.get("cited_by") or {}).get("value"), 0),
             })
-        if len(arts) < 100:
+        if len(arts) < 100 or calls >= 20:
             break
         start += 100
 

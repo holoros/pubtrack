@@ -53,13 +53,15 @@ fmt_signed <- function(x, digits = 0) ifelse(is.na(x), "", ifelse(x > 0, paste0(
 # Interactive wrapper: ggplotly with house fonts, tidy hover, and a lean mode bar.
 pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE) {
   if (!requireNamespace("plotly", quietly = TRUE)) return(p)
+  if (exists("wrap_caption", mode = "function")) p <- wrap_caption(p, 125)
   cap <- p$labels$caption
+  has_xtitle <- !is.null(p$labels$x) && !identical(p$labels$x, "") && !is.null(p$labels$x[[1]])
   w <- plotly::ggplotly(p, tooltip = tooltip, height = height)
   n_lines <- if (is.null(cap)) 0 else length(strsplit(cap, "\n", fixed = TRUE)[[1]])
   if (n_lines > 0) {
     w <- plotly::layout(w, annotations = list(list(
       text = gsub("\n", "<br>", cap, fixed = TRUE), xref = "paper", yref = "paper", x = 0, y = 0,
-      yshift = -42, xanchor = "left", yanchor = "top", showarrow = FALSE, align = "left",
+      yshift = if (has_xtitle) -48 else -28, xanchor = "left", yanchor = "top", showarrow = FALSE, align = "left",
       font = list(size = 11, color = pt_col$ink_faint))))
   }
   w <- plotly::layout(w,
@@ -67,7 +69,7 @@ pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE)
     hoverlabel = list(bgcolor = "white", bordercolor = pt_col$rule,
                       font = list(family = "Source Sans 3, sans-serif", color = pt_col$ink, size = 13)),
     legend = if (legend_bottom) list(orientation = "h", x = 0, y = -0.18) else list(orientation = "h", x = 0, y = 1.08),
-    margin = list(l = 10, r = 10, t = 30, b = 20 + 16 * n_lines), paper_bgcolor = "white", plot_bgcolor = "white"
+    margin = list(l = 10, r = 10, t = 30, b = 20 + 16 * n_lines + if (has_xtitle && n_lines > 0) 20 else 0), paper_bgcolor = "white", plot_bgcolor = "white"
   )
   plotly::config(w, displaylogo = FALSE,
                  modeBarButtonsToRemove = c("lasso2d", "select2d", "autoScale2d", "toggleSpikelines",

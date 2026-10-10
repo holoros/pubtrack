@@ -123,8 +123,10 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
   s <- read_store(store_dir)
   ids <- unique(s$runs$author_id)
   meta <- read_authors(authors_yml, ids)
-  meta <- meta[meta$author_id %in% ids, ]
   runs <- s$runs
+  has_ok <- unique(runs$author_id[runs$scholar_status %in% "ok" | runs$openalex_status %in% "ok"])
+  meta <- meta[meta$author_id %in% intersect(ids, has_ok), ]
+  if (nrow(meta) == 0) stop("No author has a successful run yet.")
   metrics <- s$metrics |> dplyr::inner_join(runs[, c("run_id", "author_id", "snapshot_date", "origin")], by = "run_id")
 
   per <- lapply(meta$author_id, function(aid) {

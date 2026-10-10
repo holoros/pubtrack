@@ -94,6 +94,7 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                 status["scholar_status"] = "ok"
             except Exception as e:
                 status["scholar_status"] = "failed"
+                calls = getattr(e, "serpapi_calls", calls)
                 messages.append(f"Scholar: {e}")
                 log.warning("%s: Scholar fetch failed: %s", author.id, e)
 
