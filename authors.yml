@@ -1,0 +1,27 @@
+# Tracked authors. Edit on GitHub (pencil icon) and commit: the refresh workflow runs on every
+# change to this file, fetches anyone new, and redeploys the dashboard.
+#
+# id               short lowercase key (letters, digits, - or _); never change it once data exist
+# name             as it should read in the dashboard and statements
+# scholar_id       the value after user= in the Google Scholar profile URL (optional)
+# orcid            used to look up openalex_id when that is blank
+# openalex_id      A... id; comma separate several if OpenAlex split the person's record
+# first_year       first publication year for academic age (0 = infer from the record)
+# scholar_cadence  weekly | monthly | quarterly | never  (each Scholar refresh costs SerpAPI searches)
+# group            free label; "self" sorts first
+
+settings:
+  scholar_via: serpapi          # serpapi | scholarly (local machine only) | none
+  serpapi_monthly_budget: 240   # free tier is 250 searches a month; failed and cached calls are free
+  openalex_cadence: weekly
+
+authors:
+  - id: weiskittel
+    name: Aaron R. Weiskittel
+    surname: Weiskittel
+    scholar_id: e7z1aLEAAAAJ
+    orcid: 0000-0003-2534-4478
+    openalex_id: A5011502228
+    first_year: 0
+    scholar_cadence: weekly
+    group: self

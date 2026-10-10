@@ -43,10 +43,10 @@ testServer(app, {
               "p_proj", "p_lorenz", "p_output", "p_roles", "compare_tbl", "p_traj", "delta_tbl", "papers_tbl",
               "p_fan_h2", "p_fan_c2", "frontier_tbl", "risers_tbl", "p_hcore", "stmt_author_txt", "report_body",
               "rep_tbl", "rep_top", "runs_tbl", "flags_tbl", "shared_tbl")) {
-    invisible(output[[o]])
+    cat(o, ""); invisible(output[[o]])
   }
   session$setInputs(papers_tbl_rows_selected = 1)
-  invisible(output$paper_panel); invisible(output$p_pw); invisible(output$p_pa)
+  cat("paper_panel "); invisible(output$paper_panel); cat("p_pw "); invisible(output$p_pw); cat("p_pa\n"); invisible(output$p_pa)
   for (m in c("citations", "fwci_median", "hc")) { session$setInputs(traj_metric = m); invisible(output$p_traj) }
   session$setInputs(source = "openalex"); invisible(output$p_traj)
   cat("all server outputs rendered\n")

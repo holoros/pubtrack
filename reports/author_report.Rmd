@@ -1,0 +1,115 @@
+---
+title: "`r b <- readRDS(params$bundle); b$authors$name[b$authors$author_id == params$author]`"
+subtitle: "Bibliometric impact, trajectory and outlook"
+output:
+  html_document:
+    self_contained: true
+    toc: true
+    theme: null
+    css: report.css
+params:
+  bundle: ""
+  author: ""
+  app_r: ""
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, dev = "ragg_png", dpi = 200,
+                      fig.width = 7.5, fig.height = 4.2, fig.align = "left")
+suppressPackageStartupMessages({ library(dplyr); library(ggplot2) })
+for (f in sort(list.files(params$app_r, pattern = "\\.R$", full.names = TRUE))) source(f)
+b <- readRDS(params$bundle)
+a <- params$author
+x <- b$compare[b$compare$author_id == a, ]
+ids <- b$authors$author_id
+unit <- .unit_lab(x$unit)
+wc <- wrap_caption
+```
+
+<p class="asof">Data as of `r format(x$snapshot_date, "%d %B %Y")`. Citation counts from `r unit`; field normalized impact from OpenAlex.`r if (nzchar(x$orcid)) paste0(" ORCID ", x$orcid, ".")` Generated `r format(Sys.Date(), "%d %B %Y")` by pubtrack.</p>
+
+## Summary
+
+<div class="stmt">`r impact_statement(b, a)`</div>
+
+**Table 1.** Key indices.
+
+```{r}
+knitr::kable(tibble::tibble(
+  Metric = c("Papers", "Citations", "h index", "g index", "i10 index", "m quotient", "Contemporary h", "hI norm",
+             "Median FWCI", "Share in top 10%", paste("Citations in", as.integer(format(x$snapshot_date, "%Y")) - 1),
+             "Growth on previous year", "Projected h in 12 months (80% interval)", "Projected new citations in 12 months (80% interval)"),
+  Value = c(fmt_n(x$n_papers), fmt_n(x$citations), x$h, x$g, x$i10, formatC(x$m_quotient, format = "f", digits = 2),
+            fmt_n(x$hc), fmt_n(x$hI_norm), formatC(x$fwci_median, format = "f", digits = 2), fmt_pct(x$top10_share),
+            fmt_n(x$cites_last_full_year), fmt_pct(x$growth_yoy),
+            paste0(x$proj_h_12m, " (", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi, ")"),
+            paste0(fmt_n(x$proj_cites_12m), " (", fmt_n(x$proj_cites_12m_lo), " to ", fmt_n(x$proj_cites_12m_hi), ")"))),
+  align = "lc")
+```
+
+## Trajectory
+
+```{r, fig.cap = "**Figure 1.** Citations received per calendar year."}
+wc(plot_hist(b, a))
+```
+
+```{r, fig.cap = "**Figure 2.** h index over time: weekly snapshots (solid) and reconstructed year ends (dashed)."}
+wc(plot_trajectory(b, a, "h", "openalex", a)) + ggplot2::theme(legend.position = "none")
+```
+
+```{r, fig.cap = "**Figure 3.** Publication portfolio by year and citations; point area shows projected citations in the next 12 months."}
+wc(plot_portfolio(b, a))
+```
+
+## Outlook
+
+```{r, fig.cap = "**Figure 4.** Projected h index with 80% and 95% prediction intervals."}
+wc(plot_fan(b, a, "h"))
+```
+
+```{r, fig.cap = "**Figure 5.** Projected total citations with 80% and 95% prediction intervals."}
+wc(plot_fan(b, a, "citations_total"))
+```
+
+**Table 2.** Papers closest to lifting the h index by one.
+
+```{r}
+f <- h_frontier(b$papers[b$papers$author_id == a & !is.na(b$papers$unit_citations), ])
+knitr::kable(dplyr::transmute(f, Rank = rank, Title = title, Citations = unit_citations, Needed = needed,
+                              `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")")), align = "clccc")
+```
+
+## Most impactful publications
+
+**Table 3.** Ten most cited publications.
+
+```{r}
+knitr::kable(top_papers(b, a, "citations", 10) |>
+  dplyr::transmute(Title = title, Year = as.integer(year), Venue = sub(",.*$", "", venue), Citations = fmt_n(unit_citations),
+                   FWCI = formatC(fwci, format = "f", digits = 2),
+                   `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")")), align = "lclccc")
+```
+
+**Table 4.** Highest field weighted impact (papers with at least ten citations).
+
+```{r}
+knitr::kable(top_papers(b, a, "fwci", 5) |>
+  dplyr::transmute(Title = title, Year = as.integer(year), FWCI = formatC(fwci, format = "f", digits = 2),
+                   Percentile = fmt_pct(pct_value, 1), Citations = fmt_n(unit_citations)), align = "lcccc")
+```
+
+```{r, results = "asis"}
+if (length(ids) > 1) cat("## Comparison with tracked authors\n")
+```
+
+```{r, eval = length(ids) > 1, fig.height = 5.5, fig.cap = "**Figure 6.** Profile across tracked authors (shade ranks each metric within the set)."}
+wc(plot_heat(b, ids, a))
+```
+
+```{r, eval = length(ids) > 1, fig.cap = "**Figure 7.** Cumulative citations by academic age."}
+wc(plot_career(b, ids, "citations", a))
+```
+
+## Methods
+
+`r methods_html()`

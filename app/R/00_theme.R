@@ -53,13 +53,21 @@ fmt_signed <- function(x, digits = 0) ifelse(is.na(x), "", ifelse(x > 0, paste0(
 # Interactive wrapper: ggplotly with house fonts, tidy hover, and a lean mode bar.
 pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE) {
   if (!requireNamespace("plotly", quietly = TRUE)) return(p)
+  cap <- p$labels$caption
   w <- plotly::ggplotly(p, tooltip = tooltip, height = height)
+  n_lines <- if (is.null(cap)) 0 else length(strsplit(cap, "\n", fixed = TRUE)[[1]])
+  if (n_lines > 0) {
+    w <- plotly::layout(w, annotations = list(list(
+      text = gsub("\n", "<br>", cap, fixed = TRUE), xref = "paper", yref = "paper", x = 0, y = 0,
+      yshift = -42, xanchor = "left", yanchor = "top", showarrow = FALSE, align = "left",
+      font = list(size = 11, color = pt_col$ink_faint))))
+  }
   w <- plotly::layout(w,
     font = list(family = "Source Sans 3, Source Sans Pro, sans-serif", color = pt_col$ink, size = 13),
     hoverlabel = list(bgcolor = "white", bordercolor = pt_col$rule,
                       font = list(family = "Source Sans 3, sans-serif", color = pt_col$ink, size = 13)),
     legend = if (legend_bottom) list(orientation = "h", x = 0, y = -0.18) else list(orientation = "h", x = 0, y = 1.08),
-    margin = list(l = 10, r = 10, t = 30, b = 10), paper_bgcolor = "white", plot_bgcolor = "white"
+    margin = list(l = 10, r = 10, t = 30, b = 20 + 16 * n_lines), paper_bgcolor = "white", plot_bgcolor = "white"
   )
   plotly::config(w, displaylogo = FALSE,
                  modeBarButtonsToRemove = c("lasso2d", "select2d", "autoScale2d", "toggleSpikelines",
@@ -69,5 +77,6 @@ pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE)
 
 save_png <- function(file, plot, width = 7, height = 4.5) {
   dev <- if (requireNamespace("ragg", quietly = TRUE)) ragg::agg_png else "png"
+  if (exists("wrap_caption")) plot <- wrap_caption(plot)
   ggplot2::ggsave(file, plot, width = width, height = height, units = "in", dpi = 300, device = dev, bg = "white")
 }

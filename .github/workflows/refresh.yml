@@ -1,0 +1,144 @@
+name: refresh
+
+# Weekly data refresh, then test, build, and deploy the dashboard to GitHub Pages.
+# Also runs when authors.yml or the app changes, and on demand from the Actions tab.
+on:
+  schedule:
+    - cron: "17 8 * * 1"          # Mondays 08:17 UTC (04:17 New York)
+  workflow_dispatch:
+    inputs:
+      authors:
+        description: "Comma separated author ids (blank = all that are due)"
+        required: false
+        default: ""
+      force_scholar:
+        description: "Refresh Scholar even if not due (spends SerpAPI searches)"
+        type: boolean
+        default: false
+      force_openalex:
+        description: "Refresh OpenAlex even if not due"
+        type: boolean
+        default: false
+      skip_sync:
+        description: "Rebuild and redeploy without fetching"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["authors.yml", "app/**", "reports/**", "src/**", ".github/workflows/refresh.yml"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install and test the collector
+        run: |
+          pip install -q -e ".[test]"
+          python -m pytest -q tests
+      - name: Fetch new snapshots
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_sync) && !(github.event_name == 'push' && !contains(join(github.event.commits.*.modified, ','), 'authors.yml') && !contains(join(github.event.commits.*.added, ','), 'authors.yml')) }}
+        env:
+          SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+          OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
+        run: |
+          ARGS=""
+          [ -n "${{ inputs.authors }}" ] && ARGS="$ARGS --author ${{ inputs.authors }}"
+          [ "${{ inputs.force_scholar }}" = "true" ] && ARGS="$ARGS --force-scholar"
+          [ "${{ inputs.force_openalex }}" = "true" ] && ARGS="$ARGS --force-openalex"
+          if [ -z "$SERPAPI_KEY" ]; then
+            echo "::warning::SERPAPI_KEY secret not set; refreshing OpenAlex only"
+            ARGS="$ARGS --scholar-via none"
+          fi
+          pubtrack resolve || true
+          pubtrack sync $ARGS --summary "$GITHUB_STEP_SUMMARY"
+      - name: Commit data
+        run: |
+          git config user.name "pubtrack-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data authors.yml
+          if git diff --cached --quiet; then echo "no data changes"; else
+            git commit -q -m "data: refresh $(date -u +%F)"
+            git pull -q --rebase origin main
+            git push -q origin HEAD:main
+          fi
+
+  build:
+    needs: sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PUBTRACK_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          packages: |
+            any::shiny
+            any::bslib
+            any::bsicons
+            any::plotly
+            any::DT
+            any::dplyr
+            any::tidyr
+            any::tibble
+            any::ggplot2
+            any::scales
+            any::yaml
+            any::ragg
+            any::rmarkdown
+            any::knitr
+            any::shinylive
+      - name: Smoke test the app on synthetic data
+        run: Rscript app/tests/smoke.R app/tests/fixtures/demo_store smoke_out
+      - name: Build the data bundle
+        run: |
+          if [ -f data/runs.csv ]; then Rscript app/build_bundle.R data authors.yml app/data/bundle.rds
+          else echo "::warning::no data yet; deploying the demo store"; Rscript app/build_bundle.R app/tests/fixtures/demo_store app/tests/fixtures/demo_store/authors.yml app/data/bundle.rds; fi
+      - name: Render static author reports
+        run: Rscript reports/render_all.R app/data/bundle.rds site_reports
+      - name: Export Shinylive site
+        run: |
+          mkdir -p export && rsync -a --exclude tests app/ export/app/
+          Rscript -e 'shinylive::export("export/app", "site")'
+          mkdir -p site/reports && cp -r site_reports/* site/reports/
+          touch site/.nojekyll
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-figures
+          path: smoke_out/*.png
+          retention-days: 14
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

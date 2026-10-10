@@ -1,9 +1,9 @@
 [Unit]
-Description=pubtrack weekly Google Scholar and OpenAlex snapshot
+Description=pubtrack weekly Google Scholar scrape from this machine, pushed to GitHub
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=@PUBTRACK@ sync
+ExecStart=/bin/bash @SCRIPT@
 Nice=10

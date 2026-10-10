@@ -4,6 +4,10 @@
 .wrap <- function(x, n = 60) vapply(x, function(s) paste(strwrap(s, n), collapse = "<br>"), "")
 .anames <- function(b, ids) b$authors$name[match(ids, b$authors$author_id)]
 .int_breaks <- function(x) { br <- pretty(x); br[br == round(br)] }
+empty_plot <- function(msg) {
+  ggplot2::ggplot() + ggplot2::annotate("text", x = 0, y = 0, label = msg, colour = pt_col$ink_muted, size = 4.5) +
+    ggplot2::theme_void()
+}
 .unit_lab <- function(u) if (identical(u, "scholar")) "Google Scholar" else "OpenAlex"
 
 # Citations received per calendar year (Scholar profile histogram, or OpenAlex counts if no Scholar).
@@ -31,6 +35,7 @@ plot_hist <- function(b, aid) {
 # Any stored metric over calendar time for several authors: weekly snapshots solid, OpenAlex
 # year end reconstructions dashed.
 plot_trajectory <- function(b, ids, metric = "h", source = "scholar", focal = NULL, recon = TRUE) {
+  mlab <- if (metric %in% names(metric_labels)) metric_labels[[metric]] else metric
   m <- b$metrics |> dplyr::filter(author_id %in% ids, metric == !!metric, source == !!source)
   r <- if (recon && source == "openalex" && !is.null(b$recon)) b$recon |>
     dplyr::filter(author_id %in% ids, metric == !!metric) else NULL
@@ -41,11 +46,14 @@ plot_trajectory <- function(b, ids, metric = "h", source = "scholar", focal = NU
       dplyr::mutate(value = cumsum(citations), snapshot_date = as.Date(sprintf("%d-12-31", year))) |>
       dplyr::ungroup()
   }
+  if (nrow(m) == 0 && (is.null(r) || nrow(r) == 0)) {
+    return(empty_plot(paste0(mlab, " is not available from ", .unit_lab(source), ".")))
+  }
   pal <- author_palette(ids, focal)
   lab <- setNames(.anames(b, names(pal)), names(pal))
   m <- dplyr::mutate(m, who = author_id, kind = ifelse(origin == "sync", "Weekly snapshot", "Imported"),
                      text = paste0("<b>", lab[author_id], "</b><br>", format(snapshot_date, "%d %b %Y"), "<br>",
-                                   metric_labels[[metric]] %||% metric, ": ", fmt_n(value, ifelse(abs(value) < 10, 2, 0))))
+                                   mlab, ": ", ifelse(abs(value) < 10 & value != round(value), formatC(value, format = "f", digits = 2), fmt_n(value))))
   g <- ggplot2::ggplot(mapping = ggplot2::aes(snapshot_date, value, colour = who, group = who, text = text))
   if (!is.null(r) && nrow(r) > 0) {
     r <- dplyr::mutate(r, who = author_id,
@@ -58,7 +66,7 @@ plot_trajectory <- function(b, ids, metric = "h", source = "scholar", focal = NU
     ggplot2::geom_point(data = m, size = 1.4) +
     ggplot2::scale_colour_manual(values = pal, labels = lab) +
     ggplot2::scale_y_continuous(labels = scales::label_comma()) +
-    ggplot2::labs(x = NULL, y = metric_labels[[metric]] %||% metric,
+    ggplot2::labs(x = NULL, y = mlab,
                   caption = paste0(.unit_lab(source), ". Solid: weekly snapshots. Dashed: year end values reconstructed from ",
                                    if (source == "openalex") "per work yearly counts (ten year window)." else "the profile's citations per year.")) +
     theme_pubtrack()
@@ -88,7 +96,7 @@ plot_career <- function(b, ids, what = c("citations", "h"), focal = NULL) {
   g <- ggplot2::ggplot(d, ggplot2::aes(age, value, colour = author_id, group = author_id, text = text))
   if (what == "h") {
     mx <- max(d$age, 1)
-    ref <- tibble::tibble(m = 1:3) |> dplyr::reframe(age = c(0, mx), value = c(0, m * mx), m = m, .by = m)
+    ref <- tibble::tibble(m = rep(1:3, each = 2), age = rep(c(0, mx), 3)) |> dplyr::mutate(value = m * age)
     g <- g + ggplot2::geom_line(data = ref, ggplot2::aes(age, value, group = m), inherit.aes = FALSE,
                                 colour = pt_col$context, linewidth = 0.4, linetype = "dotted") +
       ggplot2::coord_cartesian(ylim = c(0, max(d$value) * 1.08))
@@ -133,7 +141,9 @@ plot_fan <- function(b, aid, quantity = c("h", "citations_total")) {
   }
   g + ggplot2::scale_y_continuous(labels = scales::label_comma()) +
     ggplot2::labs(x = NULL, y = if (quantity == "h") "h index" else "Total citations",
-                  caption = paste0(.unit_lab(unit), ". Bands: 80% and 95% prediction intervals from ", b$nsim,
+                  caption = paste0(.unit_lab(unit), ". Green: weekly snapshots and median projection. Grey: ",
+                                   if (quantity == "h") "OpenAlex year end h, reconstructed (lower coverage than Scholar)" else "profile citations per year, cumulated",
+                                   ".\nBands: 80% and 95% prediction intervals from ", b$nsim,
                                    " simulations of per paper citation rates; existing papers only.")) +
     theme_pubtrack()
 }
@@ -294,14 +304,17 @@ plot_paper_weekly <- function(b, aid, wid) {
 
 plot_paper_annual <- function(b, aid, wid) {
   p <- b$papers[b$papers$author_id == aid & b$papers$work_id == wid, ]
+  cy0 <- as.integer(format(b$compare$snapshot_date[b$compare$author_id == aid], "%Y"))
   y <- b$wyc |> dplyr::filter(author_id == aid, work_id == wid) |>
-    dplyr::mutate(kind = "Observed", text = paste0(year, ": ", citations, " citations"))
+    dplyr::mutate(partial = year == cy0,
+                  text = paste0(year, ": ", citations, " OpenAlex citations", ifelse(partial, " (year to date)", "")))
   fc <- b$paper_fc |> dplyr::filter(author_id == aid, work_id == wid) |>
-    dplyr::mutate(text = paste0("Next ", k, if (k == 1) " year" else " years", " (window ", k, ")<br>Median ", fmt_n(q50),
+    dplyr::mutate(text = paste0("Months ", 12 * (k - 1) + 1, " to ", 12 * k, " from now<br>Median ", fmt_n(q50),
                                 "<br>80%: ", fmt_n(q10), " to ", fmt_n(q90), "<br>95%: ", fmt_n(q025), " to ", fmt_n(q975)))
   k <- p$k_scale %||% 1
   g <- ggplot2::ggplot() +
-    ggplot2::geom_col(data = y, ggplot2::aes(year, citations * k, text = text), fill = src_cols[["openalex"]], width = 0.75)
+    ggplot2::geom_col(data = y, ggplot2::aes(year, citations * k, text = text, fill = partial), width = 0.75) +
+    ggplot2::scale_fill_manual(values = c(`FALSE` = src_cols[["openalex"]], `TRUE` = "#f3c9a8"), guide = "none")
   if (nrow(fc)) {
     g <- g + ggplot2::geom_linerange(data = fc, ggplot2::aes(x = year_mid, ymin = q025, ymax = q975, text = text),
                                      colour = pt_col$band, linewidth = 1.2) +
@@ -319,6 +332,16 @@ plot_paper_annual <- function(b, aid, wid) {
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.06))) +
     ggplot2::labs(x = NULL, y = expression(bold(Citations ~ yr^{-1})),
                   caption = paste0("Bars: OpenAlex citations per year", if (k != 1) paste0(" scaled by ", formatC(k, format = "f", digits = 2), " to Scholar units") else "",
-                                   ". Points: projected next 12 month windows with 80% (dark) and 95% (light) intervals; method: ", p$fc_method, ".")) +
+                                   ". Pale bar: year to date.\nPoints: successive 12 month windows from now with 80% (dark) and 95% (light) intervals; method: ", p$fc_method, ".")) +
     theme_pubtrack()
+}
+
+
+# Wrap long captions for static output; plotly shows the same caption as an annotation (pt_plotly).
+wrap_caption <- function(p, width = 92) {
+  cap <- p$labels$caption
+  if (is.null(cap) || !nzchar(cap)) return(p)
+  paras <- strsplit(cap, "\n", fixed = TRUE)[[1]]
+  p$labels$caption <- paste(unlist(lapply(paras, function(x) strwrap(x, width))), collapse = "\n")
+  p
 }

@@ -5,7 +5,6 @@
 suppressPackageStartupMessages({
   library(shiny)
   library(bslib)
-  library(bsicons)
   library(plotly)
   library(DT)
   library(dplyr)
@@ -14,6 +13,7 @@ suppressPackageStartupMessages({
   library(scales)
   library(tibble)
 })
+if (requireNamespace("bsicons", quietly = TRUE)) library(bsicons) else bs_icon <- function(name, ...) NULL
 if (!exists("build_bundle")) for (f in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) source(f)
 
 B <- load_bundle(".")
@@ -340,14 +340,14 @@ server <- function(input, output, session) {
     top_papers(B, input$rep_author, input$rep_rank, 10) |>
       transmute(Title = title, Year = as.integer(year), Venue = sub(",.*$", "", venue), Citations = fmt_n(unit_citations),
                 FWCI = formatC(fwci, format = "f", digits = 2), `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")"))
-  }, align = "lcccccc", width = "100%")
-  output$rep_traj <- renderPlot(plot_trajectory(B, input$rep_author, "h", B$compare$unit[B$compare$author_id == input$rep_author], input$rep_author) +
-                                  ggplot2::theme(legend.position = "none"), res = 110)
-  output$rep_hist <- renderPlot(plot_hist(B, input$rep_author), res = 110)
-  output$rep_fan_h <- renderPlot(plot_fan(B, input$rep_author, "h"), res = 110)
-  output$rep_fan_c <- renderPlot(plot_fan(B, input$rep_author, "citations_total"), res = 110)
-  output$rep_pw <- renderPlot(plot_paper_weekly(B, input$rep_author, as.integer(input$rep_paper)), res = 110)
-  output$rep_pa <- renderPlot(plot_paper_annual(B, input$rep_author, as.integer(input$rep_paper)), res = 110)
+  }, align = "lccccc", width = "100%")
+  output$rep_traj <- renderPlot(wrap_caption(plot_trajectory(B, input$rep_author, "h", B$compare$unit[B$compare$author_id == input$rep_author], input$rep_author) +
+                                  ggplot2::theme(legend.position = "none")), res = 110)
+  output$rep_hist <- renderPlot(wrap_caption(plot_hist(B, input$rep_author)), res = 110)
+  output$rep_fan_h <- renderPlot(wrap_caption(plot_fan(B, input$rep_author, "h")), res = 110)
+  output$rep_fan_c <- renderPlot(wrap_caption(plot_fan(B, input$rep_author, "citations_total")), res = 110)
+  output$rep_pw <- renderPlot(wrap_caption(plot_paper_weekly(B, input$rep_author, as.integer(input$rep_paper))), res = 110)
+  output$rep_pa <- renderPlot(wrap_caption(plot_paper_annual(B, input$rep_author, as.integer(input$rep_paper))), res = 110)
 
   # ---- data
   output$runs_tbl <- renderDT(datatable(

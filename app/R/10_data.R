@@ -10,6 +10,12 @@ gini_of <- function(x) {
   sum((2 * seq_len(n) - n - 1) * x) / (n * sum(x))
 }
 
+slope_per_year <- function(d, y) {
+  t <- as.numeric(d) / 365.25
+  if (length(t) < 2 || stats::var(t) == 0) return(NA_real_)
+  sum((t - mean(t)) * (y - mean(y))) / sum((t - mean(t))^2)
+}
+
 read_store <- function(dir) {
   rd <- function(t) {
     f <- file.path(dir, paste0(t, ".csv"))
@@ -67,8 +73,7 @@ author_papers <- function(s, aid, rs, ro) {
     dplyr::inner_join(runs_a, by = "run_id") |>
     dplyr::filter(snapshot_date > snap_end - 365) |>
     dplyr::group_by(work_id) |> dplyr::filter(dplyr::n() >= 8) |>
-    dplyr::summarise(velocity = unname(stats::coef(stats::lm(citations ~ as.numeric(snapshot_date)))[2]) * 365.25,
-                     .groups = "drop")
+    dplyr::summarise(velocity = slope_per_year(snapshot_date, citations), .groups = "drop")
   imp <- if (is.na(ro) || is.null(s$work_impact)) {
     tibble::tibble(work_id = integer(), fwci = numeric(), pct_value = numeric(), top10 = integer(), top1 = integer())
   } else s$work_impact[s$work_impact$run_id == ro, c("work_id", "fwci", "pct_value", "top10", "top1")]

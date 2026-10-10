@@ -4,18 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pubtrack"
-version = "0.1.0"
-description = "Weekly Google Scholar and OpenAlex citation snapshots with locally computed impact metrics"
+version = "0.2.0"
+description = "Google Scholar and OpenAlex bibliometrics for tracked authors, with a CSV data store and Shinylive dashboard"
 requires-python = ">=3.11"
 dependencies = [
-  "scholarly>=1.7",
-  "bibtexparser<2",   # scholarly imports the 1.x API
   "requests>=2.31",
   "rapidfuzz>=3.0",
+  "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
+scrape = [            # local Scholar route only (GitHub runners are blocked by Scholar)
+  "scholarly>=1.7",
+  "bibtexparser<2",   # scholarly imports the 1.x API
+]
 
 [project.scripts]
 pubtrack = "pubtrack.cli:main"

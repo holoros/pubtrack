@@ -4,4 +4,10 @@ __pycache__/
 *.sqlite
 *.sqlite-*
 .pytest_cache/
-!r/tests/fixtures/demo.sqlite
+!app/tests/fixtures/demo_v1.sqlite
+*_PREV*
+app/data/
+site/
+.Rhistory
+.Rproj.user/
+*.tmp

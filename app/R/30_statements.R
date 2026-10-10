@@ -36,7 +36,7 @@ impact_statement <- function(b, aid, rank_by = "citations", n_top = 3, forecast 
   yr <- as.integer(format(cm$snapshot_date, "%Y")) - 1
   grow <- if (!is.na(cm$growth_yoy) && abs(cm$growth_yoy) >= 0.02)
     paste0(", ", if (cm$growth_yoy > 0) "up " else "down ", fmt_pct(abs(cm$growth_yoy)), " from the year before") else ""
-  s[2] <- paste0("The work drew ", fmt_n(cm$cites_last_full_year), " citations in ", yr, grow,
+  s[2] <- paste0("These publications drew ", fmt_n(cm$cites_last_full_year), " citations in ", yr, grow,
                  if (!is.na(cm$academic_age)) paste0(", and the m quotient over a ", round(cm$academic_age),
                                                       " year publishing career is ", formatC(cm$m_quotient, format = "f", digits = 2)) else "",
                  ".")
