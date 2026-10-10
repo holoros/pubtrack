@@ -220,7 +220,7 @@ plot_lorenz <- function(b, ids, focal = NULL) {
 
 # Standardized profile: each metric as a percentile within the tracked set.
 compare_metrics <- c(citations = "Citations", h = "h index", g = "g index", i10 = "i10 index", m_quotient = "m quotient",
-                     hc = "Contemporary h", hI_norm = "hI norm", awcr = "AWCR", cites_per_paper = "Citations per paper",
+                     hc = "Contemporary h", hI_norm = "hI norm", hm = "hm index", awcr = "AWCR", cites_per_paper = "Citations per paper",
                      cites_last_full_year = "Citations last year", growth_yoy = "Growth year on year",
                      papers_per_year_5y = "Papers per year (5 y)", fwci_median = "Median FWCI", top10_share = "Top 10% share",
                      proj_h_12m = "Projected h (12 mo)", share_first_or_sole = "First or sole author share")

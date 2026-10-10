@@ -73,6 +73,25 @@ def awcr_pa(c, y, a) -> float:
     return float(sum(ci / (yi * max(ai, 1)) for ci, yi, ai in zip(c, y, a)))
 
 
+def hm_index(c, a) -> float:
+    """Schreiber (2008) hm: papers counted fractionally (1/a) in rank order; the largest effective
+    rank r_eff with the paper at that rank still holding at least r_eff citations."""
+    pairs = sorted(zip(c, a), key=lambda t: -t[0])
+    r_eff, hm = 0.0, 0.0
+    for ci, ai in pairs:
+        r_eff += 1.0 / max(ai, 1)
+        if ci >= r_eff:
+            hm = r_eff
+        else:
+            break
+    return hm
+
+
+def acc(c, n: int) -> int:
+    """Publish or Perish accN: papers with at least N citations."""
+    return sum(1 for v in c if v >= n)
+
+
 def ols_slope_per_year(dates: list[str], values: list[float]) -> float | None:
     """Least squares slope of cumulative citations against time, in citations per year."""
     if len(dates) < 2:
@@ -138,7 +157,19 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
         "aw": math.sqrt(awcr(cy, yy)),
         "awcr_pa": awcr_pa(cy, yy, aa),
         "academic_age": A,
+        # Publish or Perish per author measures (author count unknown counts as 1, as for hI norm)
+        "hm": hm_index(cy, aa),
+        "cites_per_author": float(sum(ci / ai for ci, ai in zip(cy, aa))),
+        "papers_per_author": float(sum(1 / ai for ai in aa)),
+        "cites_per_year": sum(c) / A,
+        "cites_per_paper": sum(c) / len(c),
     }
+    for n in (1, 2, 5, 10, 20):
+        out[f"acc{n}"] = acc(c, n)
+    known = [p["n_authors"] for p in dated if p["n_authors"]]
+    if known:
+        out["authors_per_paper_mean"] = statistics.fmean(known)
+        out["authors_per_paper_median"] = statistics.median(known)
 
     if source == "openalex":
         imp = con.execute(

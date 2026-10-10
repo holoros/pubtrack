@@ -116,7 +116,11 @@ metric_labels <- c(
   hI_annual = "hI annual", annual_h = "Annual h", awcr = "AWCR", aw = "AW index", awcr_pa = "AWCRpA",
   fwci_median = "Median FWCI", fwci_mean = "Mean FWCI", top10_share = "Share in top 10%",
   top1_share = "Share in top 1%", velocity_per_year = "Citation velocity (per year)",
-  interim_rate_per_year = "Interim rate (per year)", n_papers = "Papers", academic_age = "Academic age"
+  interim_rate_per_year = "Interim rate (per year)", n_papers = "Papers", academic_age = "Academic age",
+  hm = "hm index (fractional)", cites_per_author = "Citations per author", papers_per_author = "Papers per author",
+  cites_per_year = "Citations per year of career", cites_per_paper = "Citations per paper",
+  acc1 = "acc1 (papers with 1 or more citations)", acc5 = "acc5", acc10 = "acc10", acc20 = "acc20",
+  authors_per_paper_mean = "Authors per paper (mean)"
 )
 
 build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 20261010, site_url = "") {
@@ -185,7 +189,8 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
       h = h_of(c_unit), g = g_of(c_unit), i10 = sum(c_unit >= 10),
       m_quotient = h_of(c_unit) / (base$academic_age %||% NA), e = base$e %||% NA, hc = base$hc %||% NA,
       hI_norm = base$hI_norm %||% NA, hI_annual = base$hI_annual %||% NA, awcr = base$awcr %||% NA,
-      awcr_pa = base$awcr_pa %||% NA,
+      awcr_pa = base$awcr_pa %||% NA, hm = base$hm %||% NA, cites_per_author = base$cites_per_author %||% NA,
+      authors_per_paper = base$authors_per_paper_median %||% NA,
       fwci_median = x$mo$fwci_median %||% NA, fwci_mean = x$mo$fwci_mean %||% NA,
       top10_share = x$mo$top10_share %||% NA, top1_share = x$mo$top1_share %||% NA,
       cites_per_paper = mean(c_unit), cites_per_year = sum(c_unit) / (base$academic_age %||% NA),

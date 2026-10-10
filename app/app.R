@@ -212,7 +212,7 @@ server <- function(input, output, session) {
   compare_view <- reactive({
     B$compare |> filter(author_id %in% ids()) |>
       transmute(Author = name, Source = src_labs[unit], Papers = n_papers, Citations = citations, h, g, i10,
-                `m quotient` = round(m_quotient, 2), hc, `hI norm` = hI_norm, `Median FWCI` = round(fwci_median, 2),
+                `m quotient` = round(m_quotient, 2), hc, `hI norm` = hI_norm, hm = round(hm, 1), `Median FWCI` = round(fwci_median, 2),
                 `Top 10%` = fmt_pct(top10_share), `Citations last year` = cites_last_full_year,
                 `Growth` = fmt_pct(growth_yoy), `Gini` = round(gini, 2), `Projected h` = proj_h_12m,
                 `h 80% interval` = paste(proj_h_12m_lo, "to", proj_h_12m_hi))

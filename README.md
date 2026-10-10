@@ -24,7 +24,7 @@ The committed CSVs in `data/` are the source of truth. Each run loads them into 
 | Route | Cost | Where it runs | Notes |
 | --- | --- | --- | --- |
 | SerpAPI (default) | free tier, 250 searches a month | GitHub Actions | one search per 100 papers per profile; failed and cached searches are not charged; the budget guard defers Scholar for the stalest authors first and never fails a run |
-| Local scrape | free | your machine, weekly user timer | `pubtrack install-timer`; scrapes with `scholarly` from a home or campus address and pushes the data |
+| Local scrape | free | your machine, weekly user timer | `pubtrack install-timer`; scrapes with `scholarly` and pushes the data. Scholar's robots.txt disallows the `cstart=` paging a full profile pull needs, and Google's terms bar automated access that ignores robots.txt, so treat this as a fallback you run knowingly |
 | None | free | GitHub Actions | OpenAlex only; every chart and statement switches to OpenAlex units |
 
 Without a `SERPAPI_KEY` secret the workflow refreshes OpenAlex only and says so in the run summary.
@@ -49,6 +49,21 @@ pubtrack resolve              # fills openalex_id from ORCID for anyone missing 
 **Data** runs, data quality flags, shared works between tracked authors, and methods.
 
 The Methods card in the app documents every index and the forecast model. In short: each paper's rate comes from a Poisson log linear fit to its last six complete years of OpenAlex counts with parameter and overdispersion uncertainty, or a Gamma posterior rate when data are thin; rates convert to Scholar units per paper; 2,000 simulations give the intervals. Only existing papers are projected, so totals are conservative for active authors.
+
+## Indices computed
+
+h, g, i10, e, contemporary h, hI norm, hI annual, annual h, AWCR, AW, AWCRpA, m quotient, hm (Schreiber 2008, fractional counting), acc1, acc2, acc5, acc10, acc20, citations and papers per author, authors per paper, citations per paper and per career year, citation velocity, and from OpenAlex the median and mean FWCI and the shares of papers in the top 10% and 1% of their field. The comparison view adds the Gini coefficient of citations across papers, authorship role shares, and 12 month projections of h and citations.
+
+## Roadmap
+
+From a survey of Publish or Perish and comparable tools (October 2026), ranked by value:
+
+1. Semantic Scholar Graph API: influential citation counts and citation intents (background, method, result) per paper.
+2. Self citation and co author citation tiers through OpenAlex, ORCID and ROR, following the MIT licensed citation-constellation method.
+3. OpenCitations Index v2 as an open cross check on per paper counts (no key, 180 requests a minute).
+4. Ioannidis composite citation indicator (c-score) from the authorship role data already held, with and without self citations.
+5. Unpaywall open access status and an OA share panel.
+6. VOSviewer JSON export of co authorship and keyword networks for embedding.
 
 ## Local use
 

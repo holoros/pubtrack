@@ -64,3 +64,10 @@ def test_velocity():
     vals = [1000 + 7 * i for i in range(10)]  # one citation per day
     assert m.ols_slope_per_year(dates, vals) == pytest.approx(365.25, rel=1e-9)
     assert m.ols_slope_per_year(dates[:1], vals[:1]) is None
+
+
+def test_hm_and_acc():
+    # sorted by c: (10,a2) (8,a4) (5,a1) (4,a2) (3,a3); r_eff 0.5, 0.75, 1.75, 2.25, 2.583 -> all hold -> hm = 2.583
+    assert m.hm_index(C, A) == pytest.approx(0.5 + 0.25 + 1 + 0.5 + 1 / 3)
+    assert m.hm_index([1, 1, 1], [1, 1, 1]) == 1
+    assert [m.acc(C, n) for n in (1, 2, 5, 10, 20)] == [5, 5, 3, 1, 0]
