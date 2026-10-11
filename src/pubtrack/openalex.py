@@ -66,7 +66,10 @@ def resolve_author(orcid: str = "", name: str = "", mailto: str = "", api_key: s
 
 def search_title(title: str, mailto: str = "", api_key: str = "", per_page: int = 5) -> list[dict]:
     """OpenAlex full text title search, for works missing from the author's OpenAlex record."""
-    q = " ".join(title.replace(",", " ").replace(":", " ").split())[:300]
+    from .db import norm_title
+
+    # Plain words only: parentheses, ellipses and similar characters make the endpoint return 500.
+    q = " ".join(norm_title(title.replace("\u2026", " ")).split()[:16])
     js = _get("/works", _params(mailto, api_key, filter=f"title.search:{q}", select=SELECT, per_page=per_page))
     return js.get("results", [])
 

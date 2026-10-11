@@ -126,7 +126,7 @@ def reconcile(con, author_id: str) -> dict:
 SEARCH_MIN = 95.0     # title search results must be near exact, since no author id vouches for them
 
 
-def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 60) -> dict:
+def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 120) -> dict:
     """For Scholar works still unmatched, search OpenAlex by title once each, store a near exact hit
     (within a year) as this author's OpenAlex record, and link it. Every search is logged, hit or miss."""
     from . import openalex
@@ -137,17 +137,24 @@ def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, t
         "WHERE w.author_id = ? AND w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.excluded = 0 "
         "AND w.merged_into IS NULL AND t.gs_id IS NULL AND length(w.title_norm) >= 20 "
         "ORDER BY w.work_id LIMIT ?", (author.id, cap)).fetchall()
-    found = 0
+    found, errors = 0, 0
     for g in todo:
         hit, score = None, None
         try:
             res = openalex.search_title(g["title"], mailto, api_key)
+            errors = 0
         except openalex.OpenAlexError:
-            break  # leave the rest for the next run
+            errors += 1
+            if errors >= 3:
+                break  # the service is struggling; the rest wait for the next run
+            continue  # not logged, so this title is retried next run
+        truncated = g["title"].rstrip().endswith(("\u2026", "..."))
         best = None
         for w in res:
             t = norm_title(w.get("display_name") or "")
             s = fuzz.token_sort_ratio(g["title_norm"], t)
+            if truncated:  # Scholar cut the title short: compare against the same length prefix
+                s = max(s, fuzz.ratio(g["title_norm"], t[:len(g["title_norm"])]))
             if s >= SEARCH_MIN and _year_ok(g["year"], w.get("publication_year")):
                 if best is None or s > best[0] or (s == best[0] and (w.get("cited_by_count") or 0) > (best[1].get("cited_by_count") or 0)):
                     best = (s, w)
