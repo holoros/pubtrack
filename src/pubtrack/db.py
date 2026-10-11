@@ -20,6 +20,14 @@ def utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def redact(text: str, *secrets: str) -> str:
+    """Mask secrets in text bound for logs or the committed store (request errors echo the full URL)."""
+    for s in secrets:
+        if s:
+            text = text.replace(s, "***")
+    return text
+
+
 def norm_title(title: str) -> str:
     """Lowercase, strip accents, markup and punctuation, collapse whitespace."""
     t = unicodedata.normalize("NFKD", title or "")

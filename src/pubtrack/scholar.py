@@ -75,50 +75,58 @@ def via_serpapi(scholar_id: str, api_key: str, timeout: int = 60) -> dict:
     100 articles is one search; the count is returned as data["serpapi_calls"]."""
     if not api_key:
         raise ScholarBlocked("SERPAPI_KEY is not set")
-    url = "https://serpapi.com/search.json"
-    works, start, first, calls = [], 0, None, 0
-    while True:
-        calls += 1
-        r = requests.get(url, params={
-            "engine": "google_scholar_author", "author_id": scholar_id,
-            "num": 100, "start": start, "api_key": api_key,
-        }, timeout=timeout)
-        js = _json(r)
-        if r.status_code != 200 or "error" in js:
-            err = ScholarBlocked(f"SerpAPI HTTP {r.status_code}: {js.get('error') or r.text[:200]}")
-            err.serpapi_calls = calls - 1  # SerpAPI does not charge failed searches; earlier pages were charged
-            raise err
-        first = first or js
-        arts = js.get("articles", [])
-        for a in arts:
-            works.append({
-                "gs_id": a.get("citation_id"),
-                "title": (a.get("title") or "").strip(),
-                "year": _int(a.get("year")),
-                "venue": a.get("publication"),
-                "citations": _int((a.get("cited_by") or {}).get("value"), 0),
-            })
-        if len(arts) < 100 or calls >= 20:
-            break
-        start += 100
+    from .db import redact
 
-    table = {}
-    for row in (first.get("cited_by") or {}).get("table", []):
-        for k, v in row.items():
-            vals = list(v.values())
-            table[k] = (_int(vals[0]), _int(vals[1]) if len(vals) > 1 else None)
-    graph = (first.get("cited_by") or {}).get("graph", [])
-    profile = {
-        "total": table.get("citations", (None, None))[0],
-        "c5y": table.get("citations", (None, None))[1],
-        "h": table.get("h_index", (None, None))[0],
-        "h5": table.get("h_index", (None, None))[1],
-        "i10": table.get("i10_index", (None, None))[0],
-        "i10_5y": table.get("i10_index", (None, None))[1],
-        "by_year": {int(g["year"]): int(g["citations"]) for g in graph if "year" in g},
-    }
-    if not works:
-        raise ScholarBlocked("SerpAPI returned no articles")
+    url = "https://serpapi.com/search.json"
+    works, start, first, calls = [], 0, None, 0   # calls: searches SerpAPI charged (failed ones are free)
+    try:
+        while True:
+            try:
+                r = requests.get(url, params={
+                    "engine": "google_scholar_author", "author_id": scholar_id,
+                    "num": 100, "start": start, "api_key": api_key,
+                }, timeout=timeout)
+            except requests.RequestException as e:  # the message carries the URL, key included
+                raise ScholarBlocked(f"SerpAPI request failed: {type(e).__name__}: {redact(str(e), api_key)}") from None
+            js = _json(r)
+            if r.status_code != 200 or "error" in js:
+                raise ScholarBlocked(redact(f"SerpAPI HTTP {r.status_code}: {js.get('error') or r.text[:200]}", api_key))
+            calls += 1
+            first = first or js
+            arts = js.get("articles", [])
+            for a in arts:
+                works.append({
+                    "gs_id": a.get("citation_id"),
+                    "title": (a.get("title") or "").strip(),
+                    "year": _int(a.get("year")),
+                    "venue": a.get("publication"),
+                    "citations": _int((a.get("cited_by") or {}).get("value"), 0),
+                })
+            if len(arts) < 100 or calls >= 20:
+                break
+            start += 100
+
+        table = {}
+        for row in (first.get("cited_by") or {}).get("table", []):
+            for k, v in row.items():
+                vals = list(v.values())
+                table[k] = (_int(vals[0]), _int(vals[1]) if len(vals) > 1 else None)
+        graph = (first.get("cited_by") or {}).get("graph", [])
+        profile = {
+            "total": table.get("citations", (None, None))[0],
+            "c5y": table.get("citations", (None, None))[1],
+            "h": table.get("h_index", (None, None))[0],
+            "h5": table.get("h_index", (None, None))[1],
+            "i10": table.get("i10_index", (None, None))[0],
+            "i10_5y": table.get("i10_index", (None, None))[1],
+            "by_year": {int(g["year"]): int(g["citations"]) for g in graph if "year" in g},
+        }
+        if not works:
+            raise ScholarBlocked("SerpAPI returned no articles")
+    except Exception as e:
+        # Whatever fails (network, parsing), the pages already returned were charged and count against the budget.
+        e.serpapi_calls = calls
+        raise
     return {"profile": profile, "works": works, "serpapi_calls": calls}
 
 

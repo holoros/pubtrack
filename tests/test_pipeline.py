@@ -230,3 +230,51 @@ def test_title_search_fallback(env):
     n = con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0]
     S(con, cfg, "2026-10-11")
     assert con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0] == n
+
+
+def test_key_never_reaches_the_store(env, monkeypatch):
+    con, cfg, state = env
+    cfg.settings.openalex_key = "OAKEY987"
+
+    def boom(*a, **k):
+        raise openalex.OpenAlexError("OpenAlex request failed: url /works?api_key=OAKEY987")
+
+    monkeypatch.setattr(openalex, "fetch_works", boom)
+    st = S(con, cfg, "2026-10-04")
+    msg = con.execute("SELECT message FROM runs WHERE run_id = ?", (st["run_id"],)).fetchone()[0]
+    assert "OpenAlex" in msg and "OAKEY987" not in msg and all("OAKEY987" not in m for m in st["messages"])
+
+
+def test_openalex_request_error_is_redacted(monkeypatch):
+    def get(*a, **k):
+        raise openalex.requests.ConnectionError("Max retries exceeded with url: /works?api_key=OAKEY987")
+
+    monkeypatch.setattr(openalex.requests, "get", get)
+    monkeypatch.setattr(openalex.time, "sleep", lambda s: None)
+    with pytest.raises(openalex.OpenAlexError) as e:
+        openalex.resolve_author("0000-0000-0000-0000", api_key="OAKEY987")
+    assert "OAKEY987" not in str(e.value) and e.value.__cause__ is None
+
+
+def test_plan_puts_today_last_and_never_synced_first(env):
+    con, cfg, _ = env
+    cfg.settings.scholar_via = "serpapi"
+    cfg.settings.serpapi_monthly_budget = 5
+    today = date(2026, 10, 10)
+    con.execute("INSERT INTO runs(author_id, started, snapshot_date, origin, scholar_status, serpapi_calls, n_scholar) "
+                "VALUES ('auth', '2026-09-01T03:00:00+00:00', ?, 'sync', 'ok', 0, 350)", (today.isoformat(),))
+    # auth synced today (0 days), peer never: with room for one, the forced refresh goes to peer
+    p = {x.author.id: x for x in syncmod.plan(con, cfg, today=today, force_scholar=True)}
+    assert p["peer"].scholar and not p["auth"].scholar
+
+
+def test_set_author_field_adds_missing_key(tmp_path):
+    yml = tmp_path / "authors.yml"
+    yml.write_text("authors:\n  - id: a\n    name: A\n    orcid: 1\n\n  - id: b\n    name: B\n    openalex_id: A1\n")
+    cfgmod.set_author_field(yml, "a", "openalex_id", "A5")
+    cfgmod.set_author_field(yml, "b", "openalex_id", 'A2"x')
+    cfg = cfgmod.load(yml)
+    assert cfg.author("a").openalex_id == "A5" and cfg.author("b").openalex_id == 'A2"x'
+    assert cfg.author("a").orcid == "1" and cfg.author("b").name == "B"
+    with pytest.raises(KeyError):
+        cfgmod.set_author_field(yml, "zz", "openalex_id", "A9")
