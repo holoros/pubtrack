@@ -27,7 +27,7 @@ plot_hist <- function(b, aid) {
     ggplot2::scale_fill_manual(values = c(`FALSE` = src_cols[[src]], `TRUE` = pt_col$crsf_pale), guide = "none") +
     ggplot2::scale_y_continuous(labels = scales::label_comma(), expand = ggplot2::expansion(mult = c(0, 0.06))) +
     ggplot2::scale_x_continuous(breaks = .int_breaks) +
-    ggplot2::labs(x = NULL, y = expression(bold(Citations ~ yr^{-1})),
+    ggplot2::labs(x = NULL, y = "Citations yr\u207b\u00b9",
                   caption = paste0(.unit_lab(src), ". Pale bar: current year to date.")) +
     theme_pubtrack()
 }
@@ -333,7 +333,7 @@ plot_paper_annual <- function(b, aid, wid) {
   }
   g + ggplot2::scale_x_continuous(breaks = .int_breaks) +
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.06))) +
-    ggplot2::labs(x = NULL, y = expression(bold(Citations ~ yr^{-1})),
+    ggplot2::labs(x = NULL, y = "Citations yr\u207b\u00b9",
                   caption = paste0("Bars: OpenAlex citations per year", if (k != 1) paste0(" scaled by ", formatC(k, format = "f", digits = 2), " to Scholar units") else "",
                                    ". Pale bar: year to date.\nPoints: successive 12 month windows from now with 80% (dark) and 95% (light) intervals; method: ", p$fc_method, ".")) +
     theme_pubtrack()

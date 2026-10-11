@@ -76,7 +76,8 @@ pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE)
     font = list(family = "Source Sans 3, Source Sans Pro, sans-serif", color = pt_col$ink, size = 13),
     hoverlabel = list(bgcolor = "white", bordercolor = pt_col$rule,
                       font = list(family = "Source Sans 3, sans-serif", color = pt_col$ink, size = 13)),
-    legend = if (legend_bottom) list(orientation = "h", x = 0, y = -0.18) else list(orientation = "h", x = 0, y = 1.08),
+    legend = if (legend_bottom) list(orientation = "h", x = 0, y = -0.18, title = list(text = "")) else
+      list(orientation = "h", x = 0, y = 1.08, title = list(text = "")),
     margin = list(l = 10, r = 10, t = 30, b = 20 + 16 * n_lines + if (has_xtitle && n_lines > 0) 20 else 0), paper_bgcolor = "white", plot_bgcolor = "white"
   )
   plotly::config(w, displaylogo = FALSE,
