@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 
 from . import matching, metrics, openalex, overrides, scholar
 from .config import CADENCE_DAYS, Author, Config
-from .db import add_flag, finish_run, new_run
+from .db import add_flag, finish_run, new_run, redact
 
 log = logging.getLogger("pubtrack")
 
@@ -96,7 +96,7 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                 status["scholar_status"] = "failed"
                 calls = getattr(e, "serpapi_calls", calls)
                 messages.append(f"Scholar: {e}")
-                log.warning("%s: Scholar fetch failed: %s", author.id, e)
+                log.warning("%s: Scholar fetch failed: %s", author.id, redact(str(e), s.serpapi_key, s.openalex_key))
 
     if "openalex" in sources:
         ids = author.openalex_ids
@@ -111,7 +111,7 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
             except Exception as e:
                 status["openalex_status"] = "failed"
                 messages.append(f"OpenAlex: {e}")
-                log.warning("%s: OpenAlex fetch failed: %s", author.id, e)
+                log.warning("%s: OpenAlex fetch failed: %s", author.id, redact(str(e), s.serpapi_key, s.openalex_key))
 
     messages += overrides.apply(con, author.id, "pre", run_id)
     status["matching"] = matching.reconcile(con, author.id)
@@ -135,6 +135,8 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
             metrics.store(con, run_id, src, vals)
             status[f"metrics_{src}"] = vals
 
+    # Messages land in the committed runs.csv, the dashboard and the job summary: never let a key through.
+    messages = [redact(m, s.serpapi_key, s.openalex_key) for m in messages]
     finish_run(con, run_id,
                scholar_status=status["scholar_status"], openalex_status=status["openalex_status"],
                scholar_via=via if status["scholar_status"] != "skipped" else None, serpapi_calls=calls,
@@ -197,8 +199,11 @@ def plan(con, cfg: Config, only: list[str] | None = None, force_scholar=False, f
                           f"scholar last ok {d_gs} d ago, openalex last ok {d_oa} d ago"))
     if via == "serpapi":
         left = cfg.settings.serpapi_monthly_budget - serpapi_used_this_month(con)
-        stale_first = sorted((p for p in plans if p.scholar),
-                             key=lambda p: -(_days_since_ok(con, p.author.id, "scholar", today) or 10_000))
+        def staleness(p):  # never synced counts as stalest; 0 days (synced today) is the freshest, not unknown
+            d = _days_since_ok(con, p.author.id, "scholar", today)
+            return 10_000 if d is None else d
+
+        stale_first = sorted((p for p in plans if p.scholar), key=lambda p: -staleness(p))
         for p in stale_first:
             if p.serpapi_estimate <= left:
                 left -= p.serpapi_estimate

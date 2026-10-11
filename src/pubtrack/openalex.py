@@ -6,6 +6,8 @@ import time
 
 import requests
 
+from .db import redact
+
 BASE = "https://api.openalex.org"
 SELECT = ",".join([
     "id", "doi", "display_name", "publication_year", "type", "authorships",
@@ -39,13 +41,15 @@ def _get(path: str, params: dict, tries: int = 4) -> dict:
             if i < tries - 1:
                 time.sleep(2 ** (i + 1))
                 continue
-            raise OpenAlexError(f"OpenAlex request failed on {path}: {e}") from e
+            # The message carries the full URL, api_key included.
+            raise OpenAlexError(f"OpenAlex request failed on {path}: "
+                                f"{type(e).__name__}: {redact(str(e), params.get('api_key', ''))}") from None
         if r.status_code == 200:
             return r.json()
         if r.status_code in (429, 500, 502, 503) and i < tries - 1:
             time.sleep(2 ** (i + 1))
             continue
-        raise OpenAlexError(f"OpenAlex HTTP {r.status_code} on {path}: {r.text[:200]}")
+        raise OpenAlexError(redact(f"OpenAlex HTTP {r.status_code} on {path}: {r.text[:200]}", params.get("api_key", "")))
     raise OpenAlexError("unreachable")
 
 

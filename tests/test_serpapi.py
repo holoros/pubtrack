@@ -47,3 +47,27 @@ def test_failure_reports_charged_calls(monkeypatch):
 def test_missing_key():
     with pytest.raises(scholar.ScholarBlocked):
         scholar.via_serpapi("X", "")
+
+
+def test_network_error_hides_key_and_counts_calls(monkeypatch):
+    pages = [R(200, page(100, 0, True))]
+
+    def get(*a, **k):
+        if pages:
+            return pages.pop(0)
+        raise scholar.requests.ConnectionError("Max retries exceeded with url: /search.json?api_key=SECRET123")
+
+    monkeypatch.setattr(scholar.requests, "get", get)
+    with pytest.raises(scholar.ScholarBlocked) as e:
+        scholar.via_serpapi("X", "SECRET123")
+    assert "SECRET123" not in str(e.value) and e.value.__cause__ is None
+    assert e.value.serpapi_calls == 1        # the first page was charged; the failed request was not
+
+
+def test_parse_error_still_counts_calls(monkeypatch):
+    js = page(10, 0, True)
+    js["cited_by"]["graph"] = [{"year": 2024}]   # no citations key
+    monkeypatch.setattr(scholar.requests, "get", lambda *a, **k: R(200, js))
+    with pytest.raises(KeyError) as e:
+        scholar.via_serpapi("X", "key")
+    assert e.value.serpapi_calls == 1

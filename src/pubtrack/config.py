@@ -6,6 +6,7 @@ exported the same way): SERPAPI_KEY, OPENALEX_API_KEY, OPENALEX_MAILTO.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -122,21 +123,28 @@ def load(path: Path | None = None) -> Config:
 
 
 def set_author_field(path: Path, author_id: str, key: str, value: str) -> None:
-    """Edit one scalar under one author in place, keeping comments and layout."""
+    """Edit one scalar under one author in place, keeping comments and layout. A key the author
+    does not have yet is added after the last line of the author's block."""
     lines = path.read_text().splitlines()
-    in_author, indent = False, None
+    start = indent = None
     for i, line in enumerate(lines):
         m = re.match(r"^(\s*)-\s+id:\s*['\"]?([^'\"\s#]+)", line)
-        if m:
-            in_author = m.group(2) == author_id
-            indent = len(m.group(1)) + 2
-            continue
-        if in_author:
-            m2 = re.match(rf"^\s{{{indent}}}{re.escape(key)}:", line)
-            if m2:
-                lines[i] = f"{' ' * indent}{key}: \"{value}\""
-                path.write_text("\n".join(lines) + "\n")
-                return
-            if re.match(r"^\S", line):
-                break
-    raise KeyError(f"{author_id}.{key} not found in {path}")
+        if m and m.group(2) == author_id:
+            start, indent = i, len(m.group(1)) + 2
+            break
+    if start is None:
+        raise KeyError(f"author {author_id!r} not found in {path}")
+    new = f"{' ' * indent}{key}: {json.dumps(str(value), ensure_ascii=False)}"  # JSON strings are valid YAML
+    last, replaced = start, False
+    for i in range(start + 1, len(lines)):
+        line = lines[i]
+        if re.match(rf"^\s{{{indent - 2}}}-\s", line) or re.match(r"^\S", line):
+            break  # next author, or the next top level key
+        if re.match(rf"^\s{{{indent}}}{re.escape(key)}:", line):
+            lines[i], replaced = new, True
+            break
+        if line.strip():
+            last = i
+    if not replaced:
+        lines.insert(last + 1, new)
+    path.write_text("\n".join(lines) + "\n")

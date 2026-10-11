@@ -58,22 +58,26 @@ jobs:
           SKIP_SYNC: ${{ inputs.skip_sync }}
           EVENT: ${{ github.event_name }}
           CHANGED: ${{ join(github.event.commits.*.modified, ',') }},${{ join(github.event.commits.*.added, ',') }}
+          # Inputs reach the script as environment variables, never pasted into its text.
+          AUTHORS: ${{ inputs.authors }}
+          FORCE_SCHOLAR: ${{ inputs.force_scholar }}
+          FORCE_OPENALEX: ${{ inputs.force_openalex }}
         run: |
           # On a push, fetch only when authors.yml changed or the store is still empty.
           if [ "$SKIP_SYNC" = "true" ]; then echo "skip_sync requested"; exit 0; fi
           if [ "$EVENT" = "push" ] && [ -f data/runs.csv ] && ! echo "$CHANGED" | grep -q "authors.yml"; then
             echo "push without authors.yml changes: no fetch"; exit 0
           fi
-          ARGS=""
-          [ -n "${{ inputs.authors }}" ] && ARGS="$ARGS --author ${{ inputs.authors }}"
-          [ "${{ inputs.force_scholar }}" = "true" ] && ARGS="$ARGS --force-scholar"
-          [ "${{ inputs.force_openalex }}" = "true" ] && ARGS="$ARGS --force-openalex"
+          ARGS=()
+          if [ -n "$AUTHORS" ]; then ARGS+=(--author "$AUTHORS"); fi
+          if [ "$FORCE_SCHOLAR" = "true" ]; then ARGS+=(--force-scholar); fi
+          if [ "$FORCE_OPENALEX" = "true" ]; then ARGS+=(--force-openalex); fi
           if [ -z "$SERPAPI_KEY" ]; then
             echo "::warning::SERPAPI_KEY secret not set; refreshing OpenAlex only"
-            ARGS="$ARGS --scholar-via none"
+            ARGS+=(--scholar-via none)
           fi
           pubtrack resolve || true
-          pubtrack sync $ARGS --summary "$GITHUB_STEP_SUMMARY"
+          pubtrack sync "${ARGS[@]}" --summary "$GITHUB_STEP_SUMMARY"
       - name: Commit data
         run: |
           git config user.name "pubtrack-bot"
