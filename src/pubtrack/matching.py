@@ -167,9 +167,10 @@ def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, t
                 openalex.store(con, run_id, [w], author.openalex_ids, author.surname, today)
                 oa_row = con.execute("SELECT work_id FROM works WHERE author_id = ? AND openalex_id = ?",
                                      (author.id, oid)).fetchone()
-                merge_pair(con, g["work_id"], oa_row["work_id"], "title_search", float(score))
-                hit = oid
-                found += 1
+                if oa_row is not None:  # store() skips non research types such as errata
+                    merge_pair(con, g["work_id"], oa_row["work_id"], "title_search", float(score))
+                    hit = oid
+                    found += 1
             elif taken["gs_id"] is None:
                 merge_pair(con, g["work_id"], taken["work_id"], "title_search", float(score))
                 hit = oid

@@ -278,3 +278,16 @@ def test_set_author_field_adds_missing_key(tmp_path):
     assert cfg.author("a").orcid == "1" and cfg.author("b").name == "B"
     with pytest.raises(KeyError):
         cfgmod.set_author_field(yml, "zz", "openalex_id", "A9")
+
+
+
+def test_title_search_skips_non_research_hit(env):
+    con, cfg, state = env
+    state["gs"].append({"gs_id": "AUTH:p7", "title": "Correction to growth of red spruce under partial harvesting",
+                        "year": 2013, "venue": "CJFR", "citations": 0})
+    hit = oa_work("W43", "Correction to growth of red spruce under partial harvesting", 2013, 0, "10.1/e", 2, 1, None, False, [])
+    hit["type"] = "erratum"
+    state["search"] = [hit]
+    st = S(con, cfg, "2026-10-04")
+    assert "title search fallback" not in " ".join(st["messages"])
+    assert con.execute("SELECT openalex_id FROM works WHERE gs_id = 'AUTH:p7'").fetchone()[0] is None
