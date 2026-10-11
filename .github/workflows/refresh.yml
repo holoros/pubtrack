@@ -51,12 +51,19 @@ jobs:
           pip install -q -e ".[test]"
           python -m pytest -q tests
       - name: Fetch new snapshots
-        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.skip_sync) && !(github.event_name == 'push' && !contains(join(github.event.commits.*.modified, ','), 'authors.yml') && !contains(join(github.event.commits.*.added, ','), 'authors.yml')) }}
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
           OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
           OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
+          SKIP_SYNC: ${{ inputs.skip_sync }}
+          EVENT: ${{ github.event_name }}
+          CHANGED: ${{ join(github.event.commits.*.modified, ',') }},${{ join(github.event.commits.*.added, ',') }}
         run: |
+          # On a push, fetch only when authors.yml changed or the store is still empty.
+          if [ "$SKIP_SYNC" = "true" ]; then echo "skip_sync requested"; exit 0; fi
+          if [ "$EVENT" = "push" ] && [ -f data/runs.csv ] && ! echo "$CHANGED" | grep -q "authors.yml"; then
+            echo "push without authors.yml changes: no fetch"; exit 0
+          fi
           ARGS=""
           [ -n "${{ inputs.authors }}" ] && ARGS="$ARGS --author ${{ inputs.authors }}"
           [ "${{ inputs.force_scholar }}" = "true" ] && ARGS="$ARGS --force-scholar"
@@ -71,7 +78,8 @@ jobs:
         run: |
           git config user.name "pubtrack-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data authors.yml
+          [ -d data ] && git add data
+          git add authors.yml
           if git diff --cached --quiet; then echo "no data changes"; else
             git commit -q -m "data: refresh $(date -u +%F)"
             git pull -q --rebase origin main
