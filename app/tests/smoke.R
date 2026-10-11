@@ -7,6 +7,7 @@ app_dir <- normalizePath(file.path(dirname(sub("--file=", "", grep("--file=", co
 store <- if (length(args) >= 1) normalizePath(args[[1]]) else file.path(app_dir, "tests", "fixtures", "demo_store")
 out_dir <- if (length(args) >= 2) args[[2]] else file.path(tempdir(), "pubtrack-smoke")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
+out_dir <- normalizePath(out_dir)
 for (f in sort(list.files(file.path(app_dir, "R"), pattern = "\\.R$", full.names = TRUE))) source(f)
 
 b <- build_bundle(store, file.path(store, "authors.yml"), nsim = 500)

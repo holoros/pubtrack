@@ -10,8 +10,11 @@ from __future__ import annotations
 
 from rapidfuzz import fuzz
 
+from .db import norm_title
+
 FUZZY_MIN = 92.0
 FUZZY_MARGIN = 3.0
+DUP_TITLE = 97.0      # two OpenAlex titles this close are copies of one work
 YEAR_TOL = 1
 
 
@@ -31,8 +34,10 @@ def candidates(gs_rows, oa_rows):
             yield 101.0, "doi", g, by_doi[g["doi"]]
             continue
         exact = [o for o in by_norm.get(g["title_norm"], []) if _year_ok(g["year"], o["year"])]
-        if len(exact) == 1:
-            yield 100.0, "title_exact", g, exact[0]
+        if exact:
+            # Several OpenAlex records with one title are copies of one work (preprint and article):
+            # take the closest year, then the most cited.
+            yield 100.0, "title_exact", g, _best(g, exact)
             continue
         scored = sorted(
             ((fuzz.token_sort_ratio(g["title_norm"], o["title_norm"]), o) for o in oa_rows
@@ -40,9 +45,17 @@ def candidates(gs_rows, oa_rows):
             key=lambda t: t[0], reverse=True,
         )
         if scored and scored[0][0] >= FUZZY_MIN:
-            runner = scored[1][0] if len(scored) > 1 else 0.0
-            if scored[0][0] - runner >= FUZZY_MARGIN:
-                yield float(scored[0][0]), "title_fuzzy", g, scored[0][1]
+            top = scored[0]
+            close = [o for s, o in scored if top[0] - s < FUZZY_MARGIN]
+            # A runner up within the margin blocks the match unless it is a copy of the same work.
+            if all(fuzz.token_sort_ratio(top[1]["title_norm"], o["title_norm"]) >= DUP_TITLE for o in close):
+                yield float(top[0]), "title_fuzzy", g, _best(g, close)
+
+
+def _best(g, rows):
+    gy = g["year"]
+    return min(rows, key=lambda o: (abs(gy - o["year"]) if gy and o["year"] else 9,
+                                    -(o["cites"] if "cites" in o.keys() and o["cites"] is not None else 0)))
 
 
 def merge_pair(con, gs_work_id: int, oa_work_id: int, method: str, score: float | None) -> None:
@@ -80,8 +93,10 @@ def reconcile(con, author_id: str) -> dict:
         "WHERE w.author_id = ? AND w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.merged_into IS NULL",
         (author_id,)).fetchall()
     oa_rows = con.execute(
-        "SELECT work_id, doi, title_norm, year FROM works WHERE author_id = ? AND gs_id IS NULL "
-        "AND openalex_id IS NOT NULL", (author_id,)).fetchall()
+        "SELECT w.work_id, w.doi, w.title_norm, w.year, COALESCE(("
+        "  SELECT s.citations FROM work_snapshots s WHERE s.work_id = w.work_id AND s.source = 'openalex' "
+        "  ORDER BY s.run_id DESC LIMIT 1), 0) AS cites FROM works w "
+        "WHERE w.author_id = ? AND w.gs_id IS NULL AND w.openalex_id IS NOT NULL", (author_id,)).fetchall()
     def ydiff(g, o):
         return abs(g["year"] - o["year"]) if g["year"] and o["year"] else 9
 
@@ -106,3 +121,53 @@ def reconcile(con, author_id: str) -> dict:
         "SELECT COUNT(*) FROM works WHERE author_id = ? AND gs_id IS NULL AND openalex_id IS NOT NULL",
         (author_id,)).fetchone()[0]
     return counts
+
+
+SEARCH_MIN = 95.0     # title search results must be near exact, since no author id vouches for them
+
+
+def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 60) -> dict:
+    """For Scholar works still unmatched, search OpenAlex by title once each, store a near exact hit
+    (within a year) as this author's OpenAlex record, and link it. Every search is logged, hit or miss."""
+    from . import openalex
+
+    todo = con.execute(
+        "SELECT w.work_id, w.gs_id, w.title, w.title_norm, w.year FROM works w "
+        "LEFT JOIN title_lookups t ON t.author_id = w.author_id AND t.gs_id = w.gs_id "
+        "WHERE w.author_id = ? AND w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.excluded = 0 "
+        "AND w.merged_into IS NULL AND t.gs_id IS NULL AND length(w.title_norm) >= 20 "
+        "ORDER BY w.work_id LIMIT ?", (author.id, cap)).fetchall()
+    found = 0
+    for g in todo:
+        hit, score = None, None
+        try:
+            res = openalex.search_title(g["title"], mailto, api_key)
+        except openalex.OpenAlexError:
+            break  # leave the rest for the next run
+        best = None
+        for w in res:
+            t = norm_title(w.get("display_name") or "")
+            s = fuzz.token_sort_ratio(g["title_norm"], t)
+            if s >= SEARCH_MIN and _year_ok(g["year"], w.get("publication_year")):
+                if best is None or s > best[0] or (s == best[0] and (w.get("cited_by_count") or 0) > (best[1].get("cited_by_count") or 0)):
+                    best = (s, w)
+        if best:
+            score, w = best
+            oid = openalex.short_id(w["id"])
+            taken = con.execute("SELECT work_id, gs_id FROM works WHERE author_id = ? AND openalex_id = ?",
+                                (author.id, oid)).fetchone()
+            if taken is None:
+                openalex.store(con, run_id, [w], author.openalex_ids, author.surname, today)
+                oa_row = con.execute("SELECT work_id FROM works WHERE author_id = ? AND openalex_id = ?",
+                                     (author.id, oid)).fetchone()
+                merge_pair(con, g["work_id"], oa_row["work_id"], "title_search", float(score))
+                hit = oid
+                found += 1
+            elif taken["gs_id"] is None:
+                merge_pair(con, g["work_id"], taken["work_id"], "title_search", float(score))
+                hit = oid
+                found += 1
+        con.execute("INSERT OR REPLACE INTO title_lookups(author_id, gs_id, searched, openalex_id, score) "
+                    "VALUES (?, ?, ?, ?, ?)", (author.id, g["gs_id"], today, hit, score))
+    con.commit()
+    return {"searched": len(todo), "linked": found}

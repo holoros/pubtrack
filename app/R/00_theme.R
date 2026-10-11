@@ -44,6 +44,13 @@ theme_pubtrack <- function(base_size = 13) {
     )
 }
 
+# Scholar venue strings carry volume, issue and pages ("Forest Ecology and Management 260 (7), 1104-1119").
+clean_venue <- function(v) {
+  v <- sub(",.*$", "", v)
+  v <- sub("\\s+\\d+\\s*(\\([^)]*\\))?\\s*$", "", v)
+  trimws(v)
+}
+
 fmt_n <- function(x, digits = 0) {
   ifelse(is.na(x), "n/a", formatC(round(x, digits), format = "f", digits = digits, big.mark = ","))
 }

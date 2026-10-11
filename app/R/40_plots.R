@@ -158,7 +158,7 @@ plot_portfolio <- function(b, aid) {
     tier = dplyr::case_when(top1 %in% 1 ~ "Top 1% (FWCI)", top10 %in% 1 ~ "Top 10% (FWCI)",
                             unit_citations >= h ~ "h core", TRUE ~ "Other"),
     tier = factor(tier, levels = c("Top 1% (FWCI)", "Top 10% (FWCI)", "h core", "Other")),
-    text = paste0("<b>", .wrap(title), "</b><br>", year, ifelse(is.na(venue), "", paste0(", ", .wrap(sub(",.*$", "", venue), 50))),
+    text = paste0("<b>", .wrap(title), "</b><br>", year, ifelse(is.na(venue), "", paste0(", ", .wrap(clean_venue(venue), 50))),
                   "<br>Citations: ", fmt_n(unit_citations), ifelse(is.na(fwci), "", paste0("<br>FWCI: ", formatC(fwci, format = "f", digits = 2))),
                   ifelse(is.na(f12_med), "", paste0("<br>Next 12 months: ", fmt_n(f12_med), " (", fmt_n(f12_lo), " to ", fmt_n(f12_hi), ")"))),
     y = pmax(unit_citations, 0.8))
@@ -187,7 +187,8 @@ plot_hcore <- function(b, aid) {
                                         ifelse(rank <= h + 1 & unit_citations < h + 1, paste0("<br>needs ", h + 1 - unit_citations, " for h + 1"), "")))
   show <- dplyr::filter(p, rank <= max(2.5 * h, 30))
   ggplot2::ggplot(show, ggplot2::aes(rank, pmax(unit_citations, 0.8), colour = zone, text = text)) +
-    ggplot2::geom_abline(slope = 1, intercept = 0, colour = pt_col$context, linetype = "dashed", linewidth = 0.4) +
+    ggplot2::geom_line(data = tibble::tibble(x = seq_len(max(show$rank)), y = seq_len(max(show$rank))),
+                       ggplot2::aes(x, y), inherit.aes = FALSE, colour = pt_col$context, linetype = "dashed", linewidth = 0.4) +
     ggplot2::geom_vline(xintercept = h + 0.5, colour = pt_col$context, linetype = "dotted") +
     ggplot2::geom_point(size = 2.2) +
     ggplot2::annotate("text", x = h + 1, y = max(show$unit_citations), label = paste0("h = ", h), hjust = 0, vjust = 1,
@@ -324,8 +325,10 @@ plot_paper_annual <- function(b, aid, wid) {
   }
   if (identical(p$fc_method, "trend")) {
     cy <- as.integer(format(b$compare$snapshot_date[b$compare$author_id == aid], "%Y"))
-    tt <- seq(max(min(y$year), cy - 6), max(fc$year_mid, cy), by = 0.25)
-    fit <- tibble::tibble(x = tt, yhat = k * exp(p$fit_a + pmin(pmax(p$fit_b, FC_SLOPE[1]), FC_SLOPE[2]) * (tt - (cy - 1))))
+    tt <- seq(cy - 6, cy + 2.5, by = 0.25)
+    h <- pmax(tt - (cy - 1), 0)
+    lin <- p$fit_a + p$fit_b * (pmin(tt, cy - 1) - (cy - 1) + p$fit_t0) + p$fit_b * (1 - FC_DAMP^h) / (1 - FC_DAMP)
+    fit <- tibble::tibble(x = tt, yhat = k * exp(lin))
     g <- g + ggplot2::geom_line(data = fit, ggplot2::aes(x, yhat), colour = pt_col$crsf_green, linetype = "22", linewidth = 0.7)
   }
   g + ggplot2::scale_x_continuous(breaks = .int_breaks) +

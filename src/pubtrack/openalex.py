@@ -64,6 +64,13 @@ def resolve_author(orcid: str = "", name: str = "", mailto: str = "", api_key: s
     return js.get("results", [])
 
 
+def search_title(title: str, mailto: str = "", api_key: str = "", per_page: int = 5) -> list[dict]:
+    """OpenAlex full text title search, for works missing from the author's OpenAlex record."""
+    q = " ".join(title.replace(",", " ").replace(":", " ").split())[:300]
+    js = _get("/works", _params(mailto, api_key, filter=f"title.search:{q}", select=SELECT, per_page=per_page))
+    return js.get("results", [])
+
+
 def fetch_works(author_ids: list[str], mailto: str = "", api_key: str = "") -> list[dict]:
     """All works for one or more OpenAlex author ids (author disambiguation can split a person)."""
     flt = "author.id:" + "|".join(author_ids)

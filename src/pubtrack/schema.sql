@@ -117,6 +117,16 @@ CREATE TABLE IF NOT EXISTS flags (
   detail   TEXT
 );
 
+-- One OpenAlex title search per unmatched Scholar work, so the fallback never repeats itself.
+CREATE TABLE IF NOT EXISTS title_lookups (
+  author_id   TEXT NOT NULL,
+  gs_id       TEXT NOT NULL,
+  searched    TEXT NOT NULL,          -- YYYY-MM-DD
+  openalex_id TEXT,                   -- linked work, or NULL when nothing passed the bar
+  score       REAL,
+  PRIMARY KEY (author_id, gs_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_ws_work ON work_snapshots(work_id, source);
 CREATE INDEX IF NOT EXISTS idx_works_norm ON works(author_id, title_norm);
 CREATE INDEX IF NOT EXISTS idx_flags_run ON flags(run_id);

@@ -156,9 +156,11 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     wyc <- s$work_year_counts[s$work_year_counts$source == "openalex" &
                                 s$work_year_counts$work_id %in% p$work_id, c("work_id", "year", "citations")]
     fc <- forecast_author(p, wyc, snap, unit, nsim = nsim, seed = seed)
+    bt <- tryCatch(backtest_author(p, wyc, snap, nsim = min(nsim, 1000)), error = function(e) NULL)
     list(aid = aid, rs = rs, ro = ro, snap = snap, unit = unit, papers = fc$papers, paper_fc = fc$paper_fc,
          author_fc = fc$author_fc, pyc = pyc, wyc = tibble::as_tibble(wyc) |> dplyr::mutate(author_id = aid),
-         recon = reconstruct(s, aid, ro), ms = ms, mo = mo, first_year = first_year)
+         recon = reconstruct(s, aid, ro), ms = ms, mo = mo, first_year = first_year,
+         backtest = if (is.null(bt)) NULL else dplyr::mutate(bt, author_id = aid))
   })
   names(per) <- meta$author_id
 
@@ -202,7 +204,11 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
       median_coauthors = stats::median(p$n_authors, na.rm = TRUE),
       velocity = x$ms$velocity_per_year %||% NA,
       proj_h_12m = h1$q50 %||% NA, proj_h_12m_lo = h1$q10 %||% NA, proj_h_12m_hi = h1$q90 %||% NA,
-      proj_cites_12m = c1$q50 %||% NA, proj_cites_12m_lo = c1$q10 %||% NA, proj_cites_12m_hi = c1$q90 %||% NA
+      proj_cites_12m = c1$q50 %||% NA, proj_cites_12m_lo = c1$q10 %||% NA, proj_cites_12m_hi = c1$q90 %||% NA,
+      bt_ratio = x$backtest$ratio %||% NA, bt_in80 = x$backtest$total_in_80 %||% NA,
+      bt_cov80 = x$backtest$paper_cov80 %||% NA,
+      # Forecast gate: shown only when last year's backtest total lands within a factor of 1.5.
+      forecast_ok = !is.null(x$backtest) && isTRUE(x$backtest$ratio > 1 / 1.5 && x$backtest$ratio < 1.5)
     )
   }))
   compare <- dplyr::left_join(compare, meta, by = "author_id")
@@ -237,6 +243,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     pyc = dplyr::bind_rows(lapply(per, `[[`, "pyc")),
     recon = dplyr::bind_rows(lapply(per, `[[`, "recon")),
     shared = shared,
+    backtest = dplyr::bind_rows(lapply(per, function(x) if (is.null(x$backtest)) NULL else dplyr::select(x$backtest, -by_method))),
     runs = tibble::as_tibble(runs),
     flags = flags_latest
   )

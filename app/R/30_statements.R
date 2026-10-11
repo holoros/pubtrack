@@ -4,7 +4,7 @@
 .date_long <- function(d) paste(as.integer(format(d, "%d")), format(d, "%B %Y"))
 .times <- function(x) paste0(formatC(x, format = "f", digits = 1), " times")
 .cite_phrase <- function(r, unit_lab) {
-  v <- if (!is.na(r$venue) && nzchar(r$venue)) paste0(", ", sub(",.*$", "", r$venue)) else ""
+  v <- if (!is.na(r$venue) && nzchar(r$venue)) paste0(", ", clean_venue(r$venue)) else ""
   paste0("“", r$title, "” (", if (is.na(r$year)) "n.d." else r$year, v, "; ", fmt_n(r$unit_citations), " citations)")
 }
 .join_and <- function(x) {
@@ -57,7 +57,7 @@ impact_statement <- function(b, aid, rank_by = "citations", n_top = 3, forecast 
     s[length(s) + 1] <- paste0(last, " is first or sole author on ", fmt_pct(cm$share_first_or_sole),
                                " of papers with known author order and last author on ", fmt_pct(cm$share_last), ".")
   }
-  if (forecast && !is.na(cm$proj_h_12m)) {
+  if (forecast && !is.na(cm$proj_h_12m) && isTRUE(cm$forecast_ok)) {
     s[length(s) + 1] <- paste0("At current citation rates the h index is projected to reach ", round(cm$proj_h_12m),
                                " within twelve months (80% interval ", round(cm$proj_h_12m_lo), " to ",
                                round(cm$proj_h_12m_hi), "), with about ", fmt_n(cm$proj_cites_12m),
@@ -73,7 +73,7 @@ paper_statement <- function(b, aid, wid) {
   all <- b$papers[b$papers$author_id == aid & !is.na(b$papers$unit_citations), ]
   rank <- sum(all$unit_citations > p$unit_citations) + 1
   unit_lab <- if (cm$unit == "scholar") "Google Scholar" else "OpenAlex"
-  venue <- if (!is.na(p$venue) && nzchar(p$venue)) paste0(" in ", sub(",.*$", "", p$venue)) else ""
+  venue <- if (!is.na(p$venue) && nzchar(p$venue)) paste0(" in ", clean_venue(p$venue)) else ""
   s <- paste0("“", p$title, "”, published", venue, " in ", p$year, ", has been cited ",
               fmt_n(p$unit_citations), " times in ", unit_lab,
               if (cm$unit == "scholar" && !is.na(p$openalex)) paste0(" (", fmt_n(p$openalex), " in OpenAlex)") else "",
@@ -91,7 +91,7 @@ paper_statement <- function(b, aid, wid) {
   } else if (last_full > 0) {
     s <- c(s, paste0("It received ", fmt_n(last_full), " OpenAlex citations in ", yr, "."))
   }
-  if (!is.na(p$f12_med)) {
+  if (!is.na(p$f12_med) && isTRUE(cm$forecast_ok)) {
     s <- c(s, paste0("Its current trajectory projects about ", fmt_n(p$f12_med), " further citations in the next twelve months (80% interval ",
                      fmt_n(p$f12_lo), " to ", fmt_n(p$f12_hi), ")."))
   }

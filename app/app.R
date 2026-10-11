@@ -121,6 +121,7 @@ ui <- page_navbar(
     layout_columns(col_widths = c(6, 6),
       pcard("h index, three years", plotlyOutput("p_fan_h2", height = "380px")),
       pcard("Total citations, three years", plotlyOutput("p_fan_c2", height = "380px"))),
+    uiOutput("bt_card"),
     layout_columns(col_widths = c(6, 6),
       pcard("Closest to lifting h", DTOutput("frontier_tbl")),
       pcard("Fastest risers, next 12 months", DTOutput("risers_tbl"))),
@@ -159,9 +160,11 @@ ui <- page_navbar(
 )
 
 server <- function(input, output, session) {
-  ids <- reactive({ u <- unique(c(input$focal, input$compare)); u[u %in% authors$author_id] })
-  cm <- reactive(B$compare[B$compare$author_id == input$focal, ])
-  focal_papers <- reactive(B$papers[B$papers$author_id == input$focal & !is.na(B$papers$unit_citations), ])
+  fa <- reactive({ req(input$focal %in% authors$author_id); input$focal })
+  ra <- reactive({ req(input$rep_author %in% authors$author_id); input$rep_author })
+  ids <- reactive({ u <- unique(c(fa(), input$compare)); u[u %in% authors$author_id] })
+  cm <- reactive(B$compare[B$compare$author_id == fa(), ])
+  focal_papers <- reactive(B$papers[B$papers$author_id == fa() & !is.na(B$papers$unit_citations), ])
 
   output$asof <- renderText(paste("As of", format(cm()$snapshot_date, "%d %b %Y")))
 
@@ -196,19 +199,19 @@ server <- function(input, output, session) {
                 showcase = bs_icon("calendar3"), theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink))
     )
   })
-  output$p_portfolio <- renderPlotly(pt_plotly(plot_portfolio(B, input$focal)))
-  output$p_hist <- renderPlotly(pt_plotly(plot_hist(B, input$focal)))
-  output$p_fan_h <- renderPlotly(pt_plotly(plot_fan(B, input$focal, "h")))
-  output$p_fan_c <- renderPlotly(pt_plotly(plot_fan(B, input$focal, "citations_total")))
+  output$p_portfolio <- renderPlotly(pt_plotly(plot_portfolio(B, fa())))
+  output$p_hist <- renderPlotly(pt_plotly(plot_hist(B, fa())))
+  output$p_fan_h <- renderPlotly(pt_plotly(plot_fan(B, fa(), "h")))
+  output$p_fan_c <- renderPlotly(pt_plotly(plot_fan(B, fa(), "citations_total")))
 
   # ---- compare
-  output$p_heat <- renderPlotly(pt_plotly(plot_heat(B, ids(), input$focal)) |> plotly::layout(xaxis = list(side = "top")))
-  output$p_career_c <- renderPlotly(pt_plotly(plot_career(B, ids(), "citations", input$focal)))
-  output$p_career_h <- renderPlotly(pt_plotly(plot_career(B, ids(), "h", input$focal)))
-  output$p_proj <- renderPlotly(pt_plotly(plot_projected_h(B, ids(), input$focal)))
-  output$p_lorenz <- renderPlotly(pt_plotly(plot_lorenz(B, ids(), input$focal)))
-  output$p_output <- renderPlotly(pt_plotly(plot_output(B, ids(), input$focal)))
-  output$p_roles <- renderPlotly(pt_plotly(plot_roles(B, ids(), input$focal)))
+  output$p_heat <- renderPlotly(pt_plotly(plot_heat(B, ids(), fa())) |> plotly::layout(xaxis = list(side = "top")))
+  output$p_career_c <- renderPlotly(pt_plotly(plot_career(B, ids(), "citations", fa())))
+  output$p_career_h <- renderPlotly(pt_plotly(plot_career(B, ids(), "h", fa())))
+  output$p_proj <- renderPlotly(pt_plotly(plot_projected_h(B, ids(), fa())))
+  output$p_lorenz <- renderPlotly(pt_plotly(plot_lorenz(B, ids(), fa())))
+  output$p_output <- renderPlotly(pt_plotly(plot_output(B, ids(), fa())))
+  output$p_roles <- renderPlotly(pt_plotly(plot_roles(B, ids(), fa())))
   compare_view <- reactive({
     B$compare |> filter(author_id %in% ids()) |>
       transmute(Author = name, Source = src_labs[unit], Papers = n_papers, Citations = citations, h, g, i10,
@@ -222,7 +225,7 @@ server <- function(input, output, session) {
                                        function(f) utils::write.csv(compare_view(), f, row.names = FALSE))
 
   # ---- trajectory
-  output$p_traj <- renderPlotly(pt_plotly(plot_trajectory(B, ids(), input$traj_metric, input$source, input$focal, input$traj_recon)))
+  output$p_traj <- renderPlotly(pt_plotly(plot_trajectory(B, ids(), input$traj_metric, input$source, fa(), input$traj_recon)))
   output$delta_tbl <- renderDT({
     d <- lapply(ids(), function(a) {
       x <- B$compare[B$compare$author_id == a, ]
@@ -238,7 +241,7 @@ server <- function(input, output, session) {
   # ---- publications
   pview <- reactive({
     focal_papers() |> arrange(desc(unit_citations)) |>
-      transmute(work_id, Title = title, Year = year, Venue = sub(",.*$", "", venue), Role = role, Citations = unit_citations,
+      transmute(work_id, Title = title, Year = year, Venue = clean_venue(venue), Role = role, Citations = unit_citations,
                 OpenAlex = openalex, FWCI = round(fwci, 2), Percentile = round(100 * pct_value, 1),
                 `Velocity yr⁻¹` = round(velocity, 1), `Next 12 mo` = round(f12_med),
                 `80% interval` = ifelse(is.na(f12_lo), "", paste(round(f12_lo), "to", round(f12_hi))),
@@ -250,7 +253,7 @@ server <- function(input, output, session) {
                              columnDefs = list(list(className = "dt-left", targets = c(0, 2)),
                                                list(width = "34%", targets = 0))))
   })
-  output$dl_papers <- downloadHandler(function() sprintf("%s_%s-papers_DATA.csv", Sys.Date(), input$focal),
+  output$dl_papers <- downloadHandler(function() sprintf("%s_%s-papers_DATA.csv", Sys.Date(), fa()),
                                       function(f) utils::write.csv(pview(), f, row.names = FALSE))
   sel_wid <- reactive({ i <- input$papers_tbl_rows_selected; req(length(i) == 1); pview()$work_id[i] })
   output$paper_panel <- renderUI({
@@ -259,14 +262,14 @@ server <- function(input, output, session) {
       pcard("Weekly counts", plotlyOutput("p_pw", height = "320px")),
       pcard("Citations per year and forecast", plotlyOutput("p_pa", height = "320px")),
       card(card_header(class = "d-flex justify-content-between align-items-center", "Publication statement", copy_btn("stmt_pub")),
-           card_body(div(id = "stmt_pub", class = "stmt", paper_statement(B, input$focal, wid)))))
+           card_body(div(id = "stmt_pub", class = "stmt", paper_statement(B, fa(), wid)))))
   })
-  output$p_pw <- renderPlotly(pt_plotly(plot_paper_weekly(B, input$focal, sel_wid())))
-  output$p_pa <- renderPlotly(pt_plotly(plot_paper_annual(B, input$focal, sel_wid())))
+  output$p_pw <- renderPlotly(pt_plotly(plot_paper_weekly(B, fa(), sel_wid())))
+  output$p_pa <- renderPlotly(pt_plotly(plot_paper_annual(B, fa(), sel_wid())))
 
   # ---- forecast
-  output$p_fan_h2 <- renderPlotly(pt_plotly(plot_fan(B, input$focal, "h")))
-  output$p_fan_c2 <- renderPlotly(pt_plotly(plot_fan(B, input$focal, "citations_total")))
+  output$p_fan_h2 <- renderPlotly(pt_plotly(plot_fan(B, fa(), "h")))
+  output$p_fan_c2 <- renderPlotly(pt_plotly(plot_fan(B, fa(), "citations_total")))
   output$frontier_tbl <- renderDT({
     f <- h_frontier(focal_papers())
     datatable(transmute(f, Rank = rank, Title = title, Citations = unit_citations, Needed = needed,
@@ -279,30 +282,46 @@ server <- function(input, output, session) {
                         `80% interval` = paste(round(f12_lo), "to", round(f12_hi)), Method = fc_method),
               rownames = FALSE, options = list(dom = "t", columnDefs = list(list(className = "dt-left", targets = 0))))
   })
-  output$p_hcore <- renderPlotly(pt_plotly(plot_hcore(B, input$focal)))
+  output$bt_card <- renderUI({
+    bt <- B$backtest[B$backtest$author_id == fa(), ]
+    x <- cm()
+    if (is.null(bt) || nrow(bt) == 0) {
+      return(card(card_body(class = "small", "Forecast check unavailable: fewer than ten papers with two or more years of OpenAlex counts.")))
+    }
+    ok <- isTRUE(x$forecast_ok)
+    card(class = if (ok) "border-success" else "border-danger",
+         card_header(if (ok) "Forecast check passed" else "Forecast check failed: projections are indicative only"),
+         card_body(p(sprintf(paste0("Refit with OpenAlex counts through %d, the model predicted %s citations to these %d papers in %d ",
+                                    "(80%% interval %s to %s). OpenAlex recorded %s, a ratio of %.2f. Per paper 80%% intervals ",
+                                    "covered %s of observed counts."),
+                             bt$target_year - 1, fmt_n(bt$pred_q50), bt$n_papers, bt$target_year, fmt_n(bt$pred_q10),
+                             fmt_n(bt$pred_q90), fmt_n(bt$observed), bt$ratio, fmt_pct(bt$paper_cov80)))))
+  })
+  output$p_hcore <- renderPlotly(pt_plotly(plot_hcore(B, fa())))
 
   # ---- report
   observeEvent(input$focal, updateSelectInput(session, "rep_author", selected = input$focal))
   observeEvent(input$rep_author, {
-    p <- B$papers |> filter(author_id == input$rep_author, !is.na(unit_citations)) |> arrange(desc(unit_citations))
-    updateSelectizeInput(session, "rep_paper", choices = c("None" = "", setNames(p$work_id, paste0(substr(p$title, 1, 90), " (", p$year, ")"))),
+    p <- B$papers |> filter(author_id == ra(), !is.na(unit_citations)) |> arrange(desc(unit_citations))
+    ch <- if (nrow(p)) setNames(as.character(p$work_id), paste0(substr(p$title, 1, 90), " (", p$year, ")")) else character()
+    updateSelectizeInput(session, "rep_paper", choices = c("None" = "", ch),
                          server = FALSE)
   })
-  stmt_a <- reactive(impact_statement(B, input$rep_author, input$rep_rank, input$rep_ntop, input$rep_fc))
+  stmt_a <- reactive(impact_statement(B, ra(), input$rep_rank, input$rep_ntop, input$rep_fc))
   output$stmt_author_txt <- renderText(stmt_a())
   output$paper_stmt_card <- renderUI({
     req(nzchar(input$rep_paper %||% ""))
     tagList(hr(), div(class = "d-flex justify-content-between align-items-center mb-2",
                       tags$strong("Publication statement"), copy_btn("stmt_rep_pub")),
-            div(id = "stmt_rep_pub", class = "stmt", paper_statement(B, input$rep_author, as.integer(input$rep_paper))))
+            div(id = "stmt_rep_pub", class = "stmt", paper_statement(B, ra(), as.integer(input$rep_paper))))
   })
   output$static_link <- renderUI({
     if (!nzchar(B$site_url %||% "")) return(NULL)
-    tags$a(class = "btn btn-outline-primary", target = "_blank", href = paste0(B$site_url, "reports/", input$rep_author, ".html"),
+    tags$a(class = "btn btn-outline-primary", target = "_blank", href = paste0(B$site_url, "reports/", ra(), ".html"),
            bs_icon("box-arrow-up-right"), " Full HTML report")
   })
   output$report_body <- renderUI({
-    a <- input$rep_author; x <- B$compare[B$compare$author_id == a, ]
+    a <- ra(); x <- B$compare[B$compare$author_id == a, ]
     wid <- if (nzchar(input$rep_paper %||% "")) as.integer(input$rep_paper) else NA
     tagList(
       div(class = "mt-3 mb-2", div(class = "eyebrow", "Impact report"),
@@ -327,7 +346,7 @@ server <- function(input, output, session) {
     )
   })
   output$rep_tbl <- renderTable({
-    x <- B$compare[B$compare$author_id == input$rep_author, ]
+    x <- B$compare[B$compare$author_id == ra(), ]
     tibble(Metric = c("Papers", "Citations", "h index", "g index", "i10 index", "m quotient", "Contemporary h", "hI norm",
                       "Median FWCI", "Share in top 10%", "Citations last full year", "Projected h in 12 months (80% interval)",
                       "Projected new citations in 12 months (80% interval)"),
@@ -337,17 +356,17 @@ server <- function(input, output, session) {
                      paste0(fmt_n(x$proj_cites_12m), " (", fmt_n(x$proj_cites_12m_lo), " to ", fmt_n(x$proj_cites_12m_hi), ")")))
   }, striped = FALSE, align = "lc", width = "100%")
   output$rep_top <- renderTable({
-    top_papers(B, input$rep_author, input$rep_rank, 10) |>
-      transmute(Title = title, Year = as.integer(year), Venue = sub(",.*$", "", venue), Citations = fmt_n(unit_citations),
+    top_papers(B, ra(), input$rep_rank, 10) |>
+      transmute(Title = title, Year = as.integer(year), Venue = clean_venue(venue), Citations = fmt_n(unit_citations),
                 FWCI = formatC(fwci, format = "f", digits = 2), `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")"))
   }, align = "lccccc", width = "100%")
-  output$rep_traj <- renderPlot(wrap_caption(plot_trajectory(B, input$rep_author, "h", B$compare$unit[B$compare$author_id == input$rep_author], input$rep_author) +
+  output$rep_traj <- renderPlot(wrap_caption(plot_trajectory(B, ra(), "h", B$compare$unit[B$compare$author_id == ra()], ra()) +
                                   ggplot2::theme(legend.position = "none")), res = 110)
-  output$rep_hist <- renderPlot(wrap_caption(plot_hist(B, input$rep_author)), res = 110)
-  output$rep_fan_h <- renderPlot(wrap_caption(plot_fan(B, input$rep_author, "h")), res = 110)
-  output$rep_fan_c <- renderPlot(wrap_caption(plot_fan(B, input$rep_author, "citations_total")), res = 110)
-  output$rep_pw <- renderPlot(wrap_caption(plot_paper_weekly(B, input$rep_author, as.integer(input$rep_paper))), res = 110)
-  output$rep_pa <- renderPlot(wrap_caption(plot_paper_annual(B, input$rep_author, as.integer(input$rep_paper))), res = 110)
+  output$rep_hist <- renderPlot(wrap_caption(plot_hist(B, ra())), res = 110)
+  output$rep_fan_h <- renderPlot(wrap_caption(plot_fan(B, ra(), "h")), res = 110)
+  output$rep_fan_c <- renderPlot(wrap_caption(plot_fan(B, ra(), "citations_total")), res = 110)
+  output$rep_pw <- renderPlot(wrap_caption(plot_paper_weekly(B, ra(), as.integer(input$rep_paper))), res = 110)
+  output$rep_pa <- renderPlot(wrap_caption(plot_paper_annual(B, ra(), as.integer(input$rep_paper))), res = 110)
 
   # ---- data
   output$runs_tbl <- renderDT(datatable(

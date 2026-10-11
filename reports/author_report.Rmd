@@ -85,7 +85,7 @@ knitr::kable(dplyr::transmute(f, Rank = rank, Title = title, Citations = unit_ci
 
 ```{r}
 knitr::kable(top_papers(b, a, "citations", 10) |>
-  dplyr::transmute(Title = title, Year = as.integer(year), Venue = sub(",.*$", "", venue), Citations = fmt_n(unit_citations),
+  dplyr::transmute(Title = title, Year = as.integer(year), Venue = clean_venue(venue), Citations = fmt_n(unit_citations),
                    FWCI = formatC(fwci, format = "f", digits = 2),
                    `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")")), align = "lclccc")
 ```

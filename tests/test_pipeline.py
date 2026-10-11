@@ -74,6 +74,7 @@ def env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(scholar, "via_scholarly", fake_gs)
     monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: OA_WORKS)
+    monkeypatch.setattr(openalex, "search_title", lambda *a, **k: state.get("search", []))
     return con, cfg, state
 
 
@@ -211,3 +212,21 @@ def test_import_v1(env):
     # the imported author syncs on top of its history
     st = S(con, cfg, "2026-10-12", "auth")
     assert st["scholar_status"] == "ok"
+
+
+
+def test_title_search_fallback(env):
+    con, cfg, state = env
+    # a Scholar paper OpenAlex did not attribute to the author, found by title search
+    state["gs"].append({"gs_id": "AUTH:p6", "title": "Growth of red spruce under partial harvesting in Maine",
+                        "year": 2012, "venue": "CJFR", "citations": 30})
+    state["search"] = [oa_work("W42", "Growth of red spruce under partial harvesting in Maine", 2012, 22, "10.1/r",
+                               3, 2, 1.3, False, [(2025, 3)])]
+    st = S(con, cfg, "2026-10-04")
+    assert st["matching"]["title_search"]["linked"] >= 1
+    w = con.execute("SELECT openalex_id, match_method, author_position FROM works WHERE gs_id = 'AUTH:p6'").fetchone()
+    assert w["openalex_id"] == "W42" and w["match_method"] == "title_search" and w["author_position"] == 2
+    # each unmatched work is searched once; a second run does not search again
+    n = con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0]
+    S(con, cfg, "2026-10-11")
+    assert con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0] == n

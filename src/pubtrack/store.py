@@ -25,6 +25,7 @@ TABLES = {  # table -> ORDER BY used for export
     "metrics": "run_id, source, metric",
     "overrides": "override_id",
     "flags": "run_id, kind, work_id, detail",
+    "title_lookups": "author_id, gs_id",
 }
 FK_ORDER = list(TABLES)  # parents before children
 

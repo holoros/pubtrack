@@ -115,6 +115,13 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
 
     messages += overrides.apply(con, author.id, "pre", run_id)
     status["matching"] = matching.reconcile(con, author.id)
+    if status["openalex_status"] == "ok" and status["matching"].get("unmatched_scholar"):
+        try:
+            fb = matching.title_search_fallback(con, author, run_id, s.mailto, s.openalex_key, today)
+            status["matching"]["title_search"] = fb
+            status["matching"]["unmatched_scholar"] -= fb["linked"]
+        except Exception as e:  # the fallback is a bonus; never fail the run on it
+            messages.append(f"title search fallback: {e}")
     messages += overrides.apply(con, author.id, "post", run_id)
     messages += run_checks(con, run_id, author.id, raw)
 

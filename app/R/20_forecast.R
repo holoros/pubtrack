@@ -2,12 +2,13 @@
 #
 # Each paper gets an annual citation rate from its OpenAlex yearly counts:
 #   trend    at least four complete years and five citations: Poisson log linear fit over the last
-#            six complete years, log mu = a + b t. Parameter uncertainty enters through draws of (a, b)
-#            from their estimated covariance inflated by the Pearson dispersion phi; count noise is
-#            negative binomial with variance phi * mu. The slope is bounded to [-0.5, 0.4] per year
-#            so a short run of years cannot extrapolate explosively.
-#   rate     fewer years: a constant rate with a Gamma(sum + 0.5, years) posterior (Jeffreys prior),
-#            using the current partial year as exposure.
+#            six complete years, log mu = a + b t (t centred). Slopes are shrunk toward the author's
+#            slope distribution by empirical Bayes (method of moments), so a short noisy run cannot
+#            dominate; growth past the last complete year is damped (factor 0.8 a year) and bounded
+#            to [-0.5, 0.4]. Parameter uncertainty enters through draws of level and slope; count
+#            noise is negative binomial with variance phi * mu (Pearson dispersion).
+#   rate     fewer years: a constant rate with a Gamma posterior (Jeffreys prior) on the latest
+#            complete year plus the year to date, since young papers are still ramping up.
 #   lifetime no OpenAlex match: Scholar citations over paper age, Gamma(c + 0.5, age); or the weekly
 #            Scholar velocity when eight or more weekly points exist.
 # OpenAlex rates convert to Scholar units with the paper's own Scholar to OpenAlex ratio shrunk toward
@@ -15,6 +16,7 @@
 # papers and citations to them are excluded, so author totals are conservative.
 
 FC_SLOPE <- c(-0.5, 0.4)
+FC_DAMP <- 0.8   # damped trend: growth beyond the last complete year decays by 20% a year
 
 .rmvn2 <- function(n, mu, V) {
   L <- tryCatch(chol(V), error = function(e) NULL)
@@ -46,6 +48,10 @@ forecast_author <- function(p, wyc, snap, unit = "scholar", nsim = 2000, seed = 
 
   draws <- array(0L, dim = c(nsim, np, H))
   info <- vector("list", np)
+  fits <- vector("list", np)
+  prep <- vector("list", np)
+  # Pass 1: data and per paper fits. Time is centred on the fitted years so level and slope are
+  # nearly independent; t0 is the centred position of the last complete year.
   for (i in seq_len(np)) {
     pub <- p$year[i]
     y_all <- wyc[wyc$work_id == p$work_id[i], c("year", "citations")]
@@ -56,37 +62,62 @@ forecast_author <- function(p, wyc, snap, unit = "scholar", nsim = 2000, seed = 
     y <- y_all$citations[match(yrs, y_all$year)]
     y[is.na(y)] <- 0
     partial <- sum(y_all$citations[y_all$year == cy])
-    method <- "lifetime"; a <- NA_real_; b <- NA_real_; phi <- 1
+    prep[[i]] <- list(pub = pub, has_oa = has_oa, k = k_i, yrs = yrs, y = y, partial = partial)
     if (has_oa && length(yrs) >= 4 && sum(y) >= 5) {
-      t <- yrs - (cy - 1)
-      fit <- tryCatch(suppressWarnings(stats::glm(y ~ t, family = stats::poisson())), error = function(e) NULL)
+      tc <- yrs - mean(yrs)
+      fit <- tryCatch(suppressWarnings(stats::glm(y ~ tc, family = stats::poisson())), error = function(e) NULL)
       if (!is.null(fit) && fit$converged) {
-        method <- "trend"
-        a <- unname(stats::coef(fit)[1]); b <- unname(stats::coef(fit)[2])
         phi <- min(max(sum(stats::residuals(fit, "pearson")^2) / max(length(y) - 2, 1), 1), 20)
-        ab <- .rmvn2(nsim, c(a, b), stats::vcov(fit) * phi)
-        ab[, 2] <- pmin(pmax(ab[, 2], FC_SLOPE[1]), FC_SLOPE[2])
-        for (k in seq_len(H)) {
-          m <- k_i * exp(ab[, 1] + ab[, 2] * (k + f))
-          draws[, i, k] <- if (phi > 1.05) stats::rnbinom(nsim, mu = m, size = m / (phi - 1)) else stats::rpois(nsim, m)
-        }
+        V <- stats::vcov(fit) * phi
+        fits[[i]] <- list(a = unname(stats::coef(fit)[1]), b = unname(stats::coef(fit)[2]), V = V, phi = phi,
+                          t0 = (cy - 1) - mean(yrs))
       }
     }
-    if (method == "lifetime" && has_oa) {
-      method <- "rate"
-      lam <- stats::rgamma(nsim, shape = sum(y) + partial + 0.5, rate = length(yrs) + f)
-      for (k in seq_len(H)) draws[, i, k] <- stats::rpois(nsim, k_i * lam)
+  }
+  # Empirical Bayes shrinkage of slopes toward the author's slope distribution (method of moments).
+  ok <- which(!vapply(fits, is.null, logical(1)))
+  if (length(ok)) {
+    bh <- vapply(fits[ok], `[[`, numeric(1), "b")
+    se2 <- vapply(fits[ok], function(z) z$V[2, 2], numeric(1))
+    w0 <- 1 / se2
+    b_pop <- if (length(ok) >= 5) sum(w0 * bh) / sum(w0) else 0
+    tau2 <- if (length(ok) >= 5) max(stats::var(bh) - mean(se2), 0.0025) else 0.01
+    for (j in seq_along(ok)) {
+      v_post <- 1 / (1 / se2[j] + 1 / tau2)
+      fits[[ok[j]]]$b_post <- v_post * (bh[j] / se2[j] + b_pop / tau2)
+      fits[[ok[j]]]$b_sd <- sqrt(v_post)
     }
-    if (method == "lifetime") {
+  }
+  damp <- function(h) (1 - FC_DAMP^h) / (1 - FC_DAMP)
+  # Pass 2: simulate.
+  for (i in seq_len(np)) {
+    d <- prep[[i]]; fz <- fits[[i]]
+    method <- "lifetime"; a <- NA_real_; b <- NA_real_; phi <- 1
+    if (!is.null(fz)) {
+      method <- "trend"; a <- fz$a; b <- fz$b_post; phi <- fz$phi
+      ad <- stats::rnorm(nsim, fz$a, sqrt(fz$V[1, 1]))
+      bd <- pmin(pmax(stats::rnorm(nsim, fz$b_post, fz$b_sd), FC_SLOPE[1]), FC_SLOPE[2])
+      for (k in seq_len(H)) {
+        m <- d$k * exp(ad + bd * fz$t0 + bd * damp(k + f))
+        draws[, i, k] <- if (phi > 1.05) stats::rnbinom(nsim, mu = m, size = m / (phi - 1)) else stats::rpois(nsim, m)
+      }
+    } else if (d$has_oa) {
+      method <- "rate"
+      # Young papers are still ramping up, so the rate rests on the latest complete year plus the
+      # year to date rather than the whole record.
+      last <- utils::tail(d$y, 1)
+      lam <- stats::rgamma(nsim, shape = sum(last) + d$partial + 0.5, rate = length(last) + f)
+      for (k in seq_len(H)) draws[, i, k] <- stats::rpois(nsim, d$k * lam)
+    } else {
       v <- p$velocity[i]
       lam <- if (!is.na(v) && v > 0) stats::rgamma(nsim, shape = 11, rate = 11 / v) else {
-        age <- if (is.na(pub)) 5 else max(cy + f - pub, 0.5)
+        age <- if (is.na(d$pub)) 5 else max(cy + f - d$pub, 0.5)
         stats::rgamma(nsim, shape = c_unit[i] + 0.5, rate = age)
       }
       for (k in seq_len(H)) draws[, i, k] <- stats::rpois(nsim, lam)
     }
     info[[i]] <- tibble::tibble(work_id = p$work_id[i], fc_method = method, fit_a = a, fit_b = b, fit_phi = phi,
-                                k_scale = k_i)
+                                fit_t0 = if (is.null(fz)) NA_real_ else fz$t0, k_scale = d$k)
   }
 
   info <- dplyr::bind_rows(info)
@@ -98,7 +129,7 @@ forecast_author <- function(p, wyc, snap, unit = "scholar", nsim = 2000, seed = 
       f12_med = apply(next12, 2, stats::median),
       f12_lo = apply(next12, 2, stats::quantile, 0.1),
       f12_hi = apply(next12, 2, stats::quantile, 0.9),
-      trend_pct = ifelse(fc_method == "trend", exp(pmin(pmax(fit_b, FC_SLOPE[1]), FC_SLOPE[2])) - 1, NA_real_)
+      trend_pct = ifelse(fc_method == "trend", exp(fit_b) - 1, NA_real_)
     )
 
   paper_fc <- dplyr::bind_rows(lapply(seq_len(H), function(k) {
@@ -141,4 +172,38 @@ h_frontier <- function(papers_unit) {
     dplyr::mutate(rank = dplyr::row_number(), needed = pmax(h + 1 - unit_citations, 0)) |>
     dplyr::filter(rank <= h + 1, rank >= max(h - 3, 1) | needed > 0) |>
     dplyr::filter(needed > 0)
+}
+
+# Backtest: refit with OpenAlex counts through the year before last, forecast last year, and compare
+# with what OpenAlex recorded. Units are OpenAlex throughout, so no scaling enters the check.
+# Returns the total (predicted interval against observed) and per paper 80% interval coverage.
+backtest_author <- function(p, wyc, snap, nsim = 1000, seed = 7) {
+  cy <- as.integer(format(snap, "%Y"))
+  target <- cy - 1
+  after <- wyc |> dplyr::filter(year >= target) |> dplyr::group_by(work_id) |>
+    dplyr::summarise(after = sum(citations), .groups = "drop")
+  pb <- p |> dplyr::filter(!is.na(openalex), !is.na(openalex_id), !is.na(year), year <= target - 1) |>
+    dplyr::left_join(after, by = "work_id") |>
+    dplyr::mutate(openalex = pmax(openalex - dplyr::coalesce(after, 0L), 0), scholar = NA_real_, velocity = NA_real_) |>
+    dplyr::select(-after)
+  if (nrow(pb) < 10) return(NULL)
+  fc <- forecast_author(pb, wyc[wyc$year <= target - 1, ], as.Date(sprintf("%d-01-01", target)),
+                        unit = "openalex", nsim = nsim, seed = seed, H = 1)
+  obs <- wyc |> dplyr::filter(year == target) |> dplyr::group_by(work_id) |>
+    dplyr::summarise(obs = sum(citations), .groups = "drop")
+  pf <- fc$paper_fc |> dplyr::filter(k == 1) |> dplyr::left_join(obs, by = "work_id") |>
+    dplyr::mutate(obs = dplyr::coalesce(obs, 0L))
+  tot <- fc$author_fc |> dplyr::filter(k == 1, quantity == "citations_added")
+  tibble::tibble(
+    target_year = target, n_papers = nrow(pf), observed = sum(pf$obs),
+    pred_q10 = tot$q10, pred_q50 = tot$q50, pred_q90 = tot$q90, pred_mean = tot$mean,
+    ratio = tot$q50 / max(sum(pf$obs), 1),
+    total_in_80 = sum(pf$obs) >= tot$q10 & sum(pf$obs) <= tot$q90,
+    paper_cov80 = mean(pf$obs >= pf$q10 & pf$obs <= pf$q90),
+    paper_mae = mean(abs(pf$obs - pf$q50)),
+    by_method = list(fc$papers |> dplyr::select(work_id, fc_method) |> dplyr::right_join(pf, by = "work_id") |>
+                       dplyr::group_by(fc_method) |>
+                       dplyr::summarise(n = dplyr::n(), cov80 = mean(obs >= q10 & obs <= q90), pred = sum(q50),
+                                        observed = sum(obs), .groups = "drop"))
+  )
 }
