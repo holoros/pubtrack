@@ -33,9 +33,9 @@ theme <- bs_theme(
   .navbar .navbar-brand { font-family: 'Libre Franklin', sans-serif; font-weight: 800; letter-spacing: .02em; }
   .card { box-shadow: none; }
   .card-header { font-family: 'Libre Franklin', sans-serif; font-weight: 700; background: %s; border-bottom: 1px solid %s; }
-  .bslib-value-box .value-box-title { font-weight: 700; color: %s; }
+  .bslib-value-box .value-box-title { font-weight: 700; }
   .bslib-value-box .value-box-value { font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-variant-numeric: tabular-nums; }
-  .vb-sub { font-size: .85rem; color: %s; }
+  .vb-sub { font-size: .85rem; opacity: .85; }
   .stmt { font-size: 1.02rem; line-height: 1.5; background: %s; border: 1px solid %s; border-radius: 6px; padding: 14px 16px; white-space: pre-wrap; }
   .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; font-weight: 700; color: %s; }
   table.dataTable td, table.dataTable th { text-align: center; vertical-align: middle; }
@@ -47,7 +47,7 @@ theme <- bs_theme(
     .card { break-inside: avoid; border: 0 !important; }
     body { background: white !important; }
   }",
-  pt_col$sunken, pt_col$rule, pt_col$ink_muted, pt_col$ink_muted, pt_col$sunken, pt_col$rule, pt_col$crsf_green))
+  pt_col$sunken, pt_col$rule, pt_col$sunken, pt_col$rule, pt_col$crsf_green))
 
 pcard <- function(title, ..., height = NULL, footer = NULL) {
   card(full_screen = TRUE, height = height, card_header(title), card_body(..., padding = 8),
@@ -61,6 +61,8 @@ copy_btn <- function(target) {
 
 ui <- page_navbar(
   title = "pubtrack", theme = theme, fillable = FALSE, window_title = "pubtrack bibliometrics",
+  # Load plotly.js with the page so the first widgets never render before the library (Shinylive race).
+  header = div(style = "display:none", plotly::plotly_empty(height = 10)),
   sidebar = sidebar(
     width = 290, open = "desktop",
     div(class = "eyebrow", "Focus"),
@@ -188,8 +190,10 @@ server <- function(input, output, session) {
                 showcase = bs_icon("quote"), theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink)),
       value_box("h index", x$h, sub("h"), showcase = bs_icon("bar-chart-steps"),
                 theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink)),
-      value_box("Projected h, 12 months", if (is.na(x$proj_h_12m)) "n/a" else round(x$proj_h_12m),
-                div(class = "vb-sub", if (!is.na(x$proj_h_12m)) paste0("80% interval ", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi)),
+      value_box("Projected h, 12 months",
+                if (is.na(x$proj_h_12m) || !isTRUE(x$forecast_ok)) "n/a" else round(x$proj_h_12m),
+                div(class = "vb-sub", if (!isTRUE(x$forecast_ok)) "Forecast check not passed" else
+                  paste0("80% interval ", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi)),
                 showcase = bs_icon("binoculars"), theme = value_box_theme(bg = pt_col$crsf_green, fg = "#ffffff")),
       value_box("Median FWCI", if (is.na(x$fwci_median)) "n/a" else formatC(x$fwci_median, format = "f", digits = 2),
                 div(class = "vb-sub", if (!is.na(x$top10_share)) paste0(fmt_pct(x$top10_share), " of papers in top 10%")),
