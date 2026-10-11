@@ -231,14 +231,14 @@ plot_heat <- function(b, ids, focal = NULL) {
   d <- cm |> dplyr::select(author_id, name, dplyr::any_of(names(compare_metrics))) |>
     tidyr::pivot_longer(-c(author_id, name), names_to = "metric", values_to = "value") |>
     dplyr::group_by(metric) |>
-    dplyr::mutate(pct = if (sum(!is.na(value)) > 1) (rank(value, na.last = "keep") - 1) / (sum(!is.na(value)) - 1) else 0.5) |>
+    dplyr::mutate(pct = if (sum(!is.na(value)) > 1) (rank(value, na.last = "keep") - 1) / (sum(!is.na(value)) - 1) else NA_real_) |>
     dplyr::ungroup() |>
     dplyr::mutate(metric_lab = factor(compare_metrics[metric], levels = rev(compare_metrics)),
                   name = factor(name, levels = cm$name[order(cm$author_id != (focal %||% ""), -cm$h)]),
                   lab = ifelse(is.na(value), "", ifelse(abs(value) < 10 & value != round(value),
                                ifelse(metric %in% c("growth_yoy", "top10_share", "share_first_or_sole"), fmt_pct(value), formatC(value, format = "f", digits = 2)),
                                fmt_n(value))),
-                  text = paste0("<b>", name, "</b><br>", metric_lab, ": ", lab, "<br>Rank within set: ", fmt_pct(pct)))
+                  text = paste0("<b>", name, "</b><br>", metric_lab, ": ", lab, ifelse(is.na(pct), "", paste0("<br>Rank within set: ", fmt_pct(pct)))))
   ggplot2::ggplot(d, ggplot2::aes(name, metric_lab, fill = pct, text = text)) +
     ggplot2::geom_tile(colour = "white", linewidth = 1.2) +
     ggplot2::geom_text(ggplot2::aes(label = lab), size = 3.6, colour = pt_col$ink) +

@@ -60,6 +60,9 @@ fmt_signed <- function(x, digits = 0) ifelse(is.na(x), "", ifelse(x > 0, paste0(
 # Interactive wrapper: ggplotly with house fonts, tidy hover, and a lean mode bar.
 pt_plotly <- function(p, tooltip = "text", height = NULL, legend_bottom = FALSE) {
   p <- suppressWarnings(force(p))   # the text aesthetic is for plotly hover only
+  if (inherits(p, "ggplot")) {      # ggplotly ignores legend.title = element_blank()
+    p <- p + ggplot2::labs(colour = NULL, fill = NULL, size = NULL, shape = NULL, linetype = NULL, alpha = NULL)
+  }
   if (!requireNamespace("plotly", quietly = TRUE)) return(p)
   if (exists("wrap_caption", mode = "function")) p <- wrap_caption(p, 125)
   cap <- p$labels$caption

@@ -36,7 +36,7 @@ theme <- bs_theme(
   .bslib-value-box .value-box-title { font-weight: 700; }
   .bslib-value-box .value-box-value { font-family: 'Libre Franklin', sans-serif; font-weight: 800; font-variant-numeric: tabular-nums; }
   .vb-sub { font-size: .85rem; opacity: .85; }
-  .stmt { font-size: 1.02rem; line-height: 1.5; background: %s; border: 1px solid %s; border-radius: 6px; padding: 14px 16px; white-space: pre-wrap; }
+  .stmt { font-size: 1.02rem; line-height: 1.5; background: %s; border: 1px solid %s; border-radius: 6px; padding: 14px 16px; }
   .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: .75rem; font-weight: 700; color: %s; }
   table.dataTable td, table.dataTable th { text-align: center; vertical-align: middle; }
   table.dataTable td.dt-left { text-align: left; }
@@ -89,6 +89,7 @@ ui <- page_navbar(
   ),
 
   nav_panel("Compare", icon = bs_icon("people"),
+    uiOutput("solo_hint"),
     pcard("Profile across the selected authors", plotlyOutput("p_heat", height = "560px")),
     layout_columns(col_widths = c(6, 6),
       pcard("Citations by academic age", plotlyOutput("p_career_c", height = "380px")),
@@ -210,6 +211,12 @@ server <- function(input, output, session) {
 
   # ---- compare
   output$p_heat <- renderPlotly(pt_plotly(plot_heat(B, ids(), fa())) |> plotly::layout(xaxis = list(side = "top")))
+  output$solo_hint <- renderUI({
+    if (length(ids()) > 1) return(NULL)
+    div(class = "alert alert-light border mb-3",
+        "Only one author is selected. Add peers to authors.yml on GitHub (id, name, ORCID or OpenAlex id, optional Scholar id); ",
+        "the next refresh fetches them and this view ranks every metric across the set.")
+  })
   output$p_career_c <- renderPlotly(pt_plotly(plot_career(B, ids(), "citations", fa())))
   output$p_career_h <- renderPlotly(pt_plotly(plot_career(B, ids(), "h", fa())))
   output$p_proj <- renderPlotly(pt_plotly(plot_projected_h(B, ids(), fa())))
