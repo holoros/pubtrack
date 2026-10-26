@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -57,7 +59,7 @@ jobs:
           OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
           SKIP_SYNC: ${{ inputs.skip_sync }}
           EVENT: ${{ github.event_name }}
-          CHANGED: ${{ join(github.event.commits.*.modified, ',') }},${{ join(github.event.commits.*.added, ',') }}
+          BEFORE: ${{ github.event.before }}
           # Inputs reach the script as environment variables, never pasted into its text.
           AUTHORS: ${{ inputs.authors }}
           FORCE_SCHOLAR: ${{ inputs.force_scholar }}
@@ -65,8 +67,12 @@ jobs:
         run: |
           # On a push, fetch only when authors.yml changed or the store is still empty.
           if [ "$SKIP_SYNC" = "true" ]; then echo "skip_sync requested"; exit 0; fi
-          if [ "$EVENT" = "push" ] && [ -f data/runs.csv ] && ! echo "$CHANGED" | grep -q "authors.yml"; then
-            echo "push without authors.yml changes: no fetch"; exit 0
+          # The list of changed files comes from git, not from the event payload: joining
+          # commits.*.modified gave an empty string on a two commit push (26 October 2026).
+          if [ "$EVENT" = "push" ] && [ -f data/runs.csv ]; then
+            CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" 2>/dev/null || git show --name-only --format= HEAD)
+            echo "changed: $CHANGED"
+            if ! echo "$CHANGED" | grep -q "authors.yml"; then echo "push without authors.yml changes: no fetch"; exit 0; fi
           fi
           ARGS=()
           if [ -n "$AUTHORS" ]; then ARGS+=(--author "$AUTHORS"); fi

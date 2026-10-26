@@ -10,7 +10,7 @@
 # scholar_cadence  weekly | monthly | quarterly | never  (each Scholar refresh costs SerpAPI searches)
 # group            free label; "self" sorts first
 #
-# A change to this file triggers a fetch on push (used 2026-10-26 to backfill OpenAlex after the paging fix).
+# A change to this file triggers a fetch on push (used on 26 October 2026 to backfill OpenAlex after the paging fix).
 
 settings:
   scholar_via: serpapi          # serpapi | scholarly (local machine only) | none
