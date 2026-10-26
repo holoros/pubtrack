@@ -33,6 +33,10 @@ for (nm in names(plots)) {
   save_png(file.path(out_dir, paste0(nm, ".png")), plots[[nm]])
   invisible(pt_plotly(plots[[nm]]))
 }
+kt <- key_indices_table(b$compare[b$compare$author_id == a, ])
+stopifnot(nrow(kt) == 21, !any(grepl("^NA|NA to|\\(NA", kt$Value)))
+stopifnot(all(is.na(b$compare$proj_h_12m) | b$compare$forecast_ok))   # projections carried only past the gate
+stopifnot(all(c("unit_date", "scholar_date", "openalex_date", "h_openalex", "h5", "h5_reported", "author_count_coverage") %in% names(b$compare)))
 cat("\nAUTHOR STATEMENT\n", impact_statement(b, a), "\n\nPAPER STATEMENT\n", paper_statement(b, a, wid), "\n\n")
 for (rk in c("fwci", "rate")) cat(rk, ":", impact_statement(b, a, rk, 2, FALSE), "\n\n")
 

@@ -27,7 +27,7 @@ The committed CSVs in `data/` are the source of truth. Each run loads them into 
 | Local scrape | free | your machine, weekly user timer | `pubtrack install-timer`; scrapes with `scholarly` and pushes the data. Scholar's robots.txt disallows the `cstart=` paging a full profile pull needs, and Google's terms bar automated access that ignores robots.txt, so treat this as a fallback you run knowingly |
 | None | free | GitHub Actions | OpenAlex only; every chart and statement switches to OpenAlex units |
 
-Without a `SERPAPI_KEY` secret the workflow refreshes OpenAlex only and says so in the run summary.
+Without a `SERPAPI_KEY` secret the workflow refreshes OpenAlex only and says so in the run summary. Works that reach the record through the title search fallback are refetched by id on every run, since OpenAlex files them under another author id.
 
 ## Add or change authors
 
@@ -54,7 +54,7 @@ The Methods card in the app documents every index and the forecast model. In sho
 
 h, g, i10, e, contemporary h, hI norm, hI annual, annual h, AWCR, AW, AWCRpA, m quotient, hm (Schreiber 2008, fractional counting), acc1, acc2, acc5, acc10, acc20, citations and papers per author, authors per paper, citations per paper and per career year, citation velocity, and from OpenAlex the median and mean FWCI and the shares of papers in the top 10% and 1% of their field. The comparison view adds the Gini coefficient of citations across papers, authorship role shares, and 12 month projections of h and citations.
 
-**Annualized indices** put authors at different career stages on the same footing. Rates per career year: papers, g, i10 (alongside the m quotient and citations per career year). Rates per paper year: the mean and median of citations per paper divided by years since publication. A fixed window, the last five complete calendar years: citations received (h5, i10 and citations per year over that window; from OpenAlex counts by year, and from Scholar's reported h5 and i10 with its year histogram), and recent output (papers published in the window, the citations they hold, their h, citations per recent paper). Scholar's reported h5 and i10 window also includes the partial current year; the citation totals use complete years in both sources. These appear in the comparison heatmap, the key indices table of every report, and as trajectories.
+**Annualized indices** put authors at different career stages on the same footing. Rates per career year: papers, g, i10 (alongside the m quotient and citations per career year). Rates per paper year: the mean and median of citations per paper divided by years since publication. A fixed window, the last five complete calendar years, always from OpenAlex counts by year so every author is measured on one source: citations received, citations per year, h5 and i10 over the window, and recent output (papers published in the window, the citations they hold, their h, citations per recent paper). Scholar's reported h5 and i10 cover six calendar years including the partial current one and are kept apart as reported values. Per author indices (hI norm, hm, AWCRpA, citations and papers per author) use papers with a known author count only, and the share covered is stored. These appear in the comparison heatmap (columns carry the unit, GS or OA), the key indices table of every report, and as trajectories.
 
 ## Roadmap
 

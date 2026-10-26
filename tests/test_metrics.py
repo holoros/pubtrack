@@ -27,6 +27,10 @@ def test_g():
     # cumulative 10, 18, 23, 27, 30 against 1, 4, 9, 16, 25
     assert m.g_index(C) == 5
     assert m.g_index([1, 1, 1]) == 1
+    # Publish or Perish pads with uncited papers, so g can exceed the paper count
+    assert m.g_index([100]) == 10
+    assert m.g_index([]) == 0
+    assert m.g_index([0, 0]) == 0
 
 
 def test_i10():

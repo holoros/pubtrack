@@ -20,6 +20,7 @@ top_papers <- function(b, aid, rank_by = c("citations", "fwci", "rate"), n = 3) 
     citations = p$unit_citations,
     fwci = ifelse(p$unit_citations >= 10, p$fwci, NA),
     rate = p$f12_med)
+  p <- p[!is.na(key), ]; key <- key[!is.na(key)]
   p[order(-key, -p$unit_citations, na.last = TRUE), ][seq_len(min(n, nrow(p))), ]
 }
 
@@ -30,10 +31,10 @@ impact_statement <- function(b, aid, rank_by = "citations", n_top = 3, forecast 
   last <- sub("^.* ", "", nm)
   unit_lab <- if (cm$unit == "scholar") "Google Scholar" else "OpenAlex"
   s <- character()
-  s[1] <- paste0("As of ", .date_long(cm$snapshot_date), ", ", nm, " has ", fmt_n(cm$n_papers),
+  s[1] <- paste0("As of ", .date_long(cm$unit_date), ", ", nm, " has ", fmt_n(cm$n_papers),
                  " publications indexed in ", unit_lab, " with ", fmt_n(cm$citations), " citations, an h index of ",
                  cm$h, ", and an i10 index of ", cm$i10, ".")
-  yr <- as.integer(format(cm$snapshot_date, "%Y")) - 1
+  yr <- as.integer(format(cm$unit_date, "%Y")) - 1
   grow <- if (!is.na(cm$growth_yoy) && abs(cm$growth_yoy) >= 0.02)
     paste0(", ", if (cm$growth_yoy > 0) "up " else "down ", fmt_pct(abs(cm$growth_yoy)), " from the year before") else ""
   s[2] <- paste0("These publications drew ", fmt_n(cm$cites_last_full_year), " citations in ", yr, grow,
@@ -74,7 +75,7 @@ paper_statement <- function(b, aid, wid) {
   rank <- sum(all$unit_citations > p$unit_citations) + 1
   unit_lab <- if (cm$unit == "scholar") "Google Scholar" else "OpenAlex"
   venue <- if (!is.na(p$venue) && nzchar(p$venue)) paste0(" in ", clean_venue(p$venue)) else ""
-  s <- paste0("“", p$title, "”, published", venue, " in ", p$year, ", has been cited ",
+  s <- paste0("“", p$title, "”, published", venue, if (is.na(p$year)) " (n.d.)" else paste0(" in ", p$year), ", has been cited ",
               fmt_n(p$unit_citations), " times in ", unit_lab,
               if (cm$unit == "scholar" && !is.na(p$openalex)) paste0(" (", fmt_n(p$openalex), " in OpenAlex)") else "",
               ", ranking ", rank, " of ", nrow(all), " papers by ", cm$name, ".")
@@ -84,7 +85,7 @@ paper_statement <- function(b, aid, wid) {
                      if (p$top1 %in% 1) ", placing it in the top 1% of its field" else if (p$top10 %in% 1)
                        ", placing it in the top 10% of its field" else "", "."))
   }
-  yr <- as.integer(format(cm$snapshot_date, "%Y")) - 1
+  yr <- as.integer(format(cm$openalex_date %||% cm$snapshot_date, "%Y")) - 1
   last_full <- sum(b$wyc$citations[b$wyc$author_id == aid & b$wyc$work_id == wid & b$wyc$year == yr])
   if (!is.na(p$velocity)) {
     s <- c(s, paste0("Over the past year it gained about ", fmt_n(p$velocity), " citations on Google Scholar."))
@@ -96,4 +97,32 @@ paper_statement <- function(b, aid, wid) {
                      fmt_n(p$f12_lo), " to ", fmt_n(p$f12_hi), ")."))
   }
   paste(s, collapse = " ")
+}
+
+
+# One formatter for "median (lo to hi)" cells; "n/a" when the forecast is absent or gated off.
+fmt_interval <- function(med, lo, hi, gated = TRUE, digits = 0) {
+  ifelse(is.na(med) | !gated, "n/a", paste0(fmt_n(med, digits), " (", fmt_n(lo, digits), " to ", fmt_n(hi, digits), ")"))
+}
+
+# Key indices table shared by the in app report and the static report. Window rows are OpenAlex
+# for every author; the unit rows are in the author's unit, named in the first row.
+key_indices_table <- function(x) {
+  tibble::tibble(
+    Metric = c(paste0("Papers (", .unit_lab(x$unit), ")"), "Citations", "h index", "g index", "i10 index", "m quotient",
+               "Contemporary h", "hI norm (papers with known author count)",
+               "Papers per career year", "Citations per career year", "Citations per paper per year (median)",
+               "Citations per year, last 5 complete years (OpenAlex)", "h5, last 5 complete years (OpenAlex)",
+               "Papers published, last 5 complete years (OpenAlex)", "h of papers from last 5 complete years (OpenAlex)",
+               "Median FWCI (OpenAlex)", "Share in top 10% (OpenAlex)",
+               paste("Citations in", as.integer(format(x$unit_date, "%Y")) - 1), "Growth on previous year",
+               "Projected h in 12 months (80% interval)", "Projected new citations in 12 months (80% interval)"),
+    Value = c(fmt_n(x$n_papers), fmt_n(x$citations), fmt_n(x$h), fmt_n(x$g), fmt_n(x$i10), fmt_n(x$m_quotient, 2),
+              fmt_n(x$hc), fmt_n(x$hI_norm),
+              fmt_n(x$papers_per_year, 1), fmt_n(x$cites_per_year), fmt_n(x$cites_per_paper_year_median, 2),
+              fmt_n(x$cites_per_year_5y), fmt_n(x$h5), fmt_n(x$papers_5y), fmt_n(x$h_recent),
+              fmt_n(x$fwci_median, 2), fmt_pct(x$top10_share),
+              fmt_n(x$cites_last_full_year), fmt_pct(x$growth_yoy),
+              fmt_interval(x$proj_h_12m, x$proj_h_12m_lo, x$proj_h_12m_hi, isTRUE(x$forecast_ok)),
+              fmt_interval(x$proj_cites_12m, x$proj_cites_12m_lo, x$proj_cites_12m_hi, isTRUE(x$forecast_ok))))
 }

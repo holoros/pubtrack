@@ -26,7 +26,7 @@ unit <- .unit_lab(x$unit)
 wc <- wrap_caption
 ```
 
-<p class="asof">Data as of `r format(x$snapshot_date, "%d %B %Y")`. Citation counts from `r unit`; field normalized impact from OpenAlex.`r if (nzchar(x$orcid)) paste0(" ORCID ", x$orcid, ".")` Generated `r format(Sys.Date(), "%d %B %Y")` by pubtrack.</p>
+<p class="asof">Citation counts from `r unit` as of `r format(x$unit_date, "%d %B %Y")`; field normalized impact and five year window from OpenAlex`r if (!is.na(x$openalex_date) && x$openalex_date != x$unit_date) paste0(" as of ", format(x$openalex_date, "%d %B %Y"))`.`r if (nzchar(x$orcid)) paste0(" ORCID ", x$orcid, ".")` Generated `r format(Sys.Date(), "%d %B %Y")` by pubtrack.</p>
 
 ## Summary
 
@@ -35,21 +35,7 @@ wc <- wrap_caption
 **Table 1.** Key indices.
 
 ```{r}
-knitr::kable(tibble::tibble(
-  Metric = c("Papers", "Citations", "h index", "g index", "i10 index", "m quotient", "Contemporary h", "hI norm",
-             "Papers per career year", "Citations per career year", "Citations per year, last 5 complete years",
-             "h5", "Citations per paper per year (median)", "Papers published, last 5 complete years",
-             "h of papers from last 5 years", "Median FWCI", "Share in top 10%", paste("Citations in", as.integer(format(x$snapshot_date, "%Y")) - 1),
-             "Growth on previous year", "Projected h in 12 months (80% interval)", "Projected new citations in 12 months (80% interval)"),
-  Value = c(fmt_n(x$n_papers), fmt_n(x$citations), x$h, x$g, x$i10, formatC(x$m_quotient, format = "f", digits = 2),
-            fmt_n(x$hc), fmt_n(x$hI_norm),
-            formatC(x$papers_per_year, format = "f", digits = 1), fmt_n(x$cites_per_year), fmt_n(x$cites_per_year_5y),
-            fmt_n(x$h5), formatC(x$cites_per_paper_year_median, format = "f", digits = 2), fmt_n(x$papers_5y),
-            fmt_n(x$h_recent), formatC(x$fwci_median, format = "f", digits = 2), fmt_pct(x$top10_share),
-            fmt_n(x$cites_last_full_year), fmt_pct(x$growth_yoy),
-            paste0(x$proj_h_12m, " (", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi, ")"),
-            paste0(fmt_n(x$proj_cites_12m), " (", fmt_n(x$proj_cites_12m_lo), " to ", fmt_n(x$proj_cites_12m_hi), ")"))),
-  align = "lc")
+knitr::kable(key_indices_table(x), align = "lc")
 ```
 
 ## Trajectory
@@ -58,8 +44,8 @@ knitr::kable(tibble::tibble(
 wc(plot_hist(b, a))
 ```
 
-```{r, fig.cap = "**Figure 2.** h index over time: weekly snapshots (solid) and reconstructed year ends (dashed)."}
-wc(plot_trajectory(b, a, "h", "openalex", a)) + ggplot2::theme(legend.position = "none")
+```{r, fig.cap = "**Figure 2.** h index over time in the table's unit: weekly snapshots (solid) and reconstructed year ends (dashed)."}
+wc(plot_trajectory(b, a, "h", x$unit, a)) + ggplot2::theme(legend.position = "none")
 ```
 
 ```{r, fig.cap = "**Figure 3.** Publication portfolio by year and citations; point area shows projected citations in the next 12 months."}
@@ -81,7 +67,7 @@ wc(plot_fan(b, a, "citations_total"))
 ```{r}
 f <- h_frontier(b$papers[b$papers$author_id == a & !is.na(b$papers$unit_citations), ])
 knitr::kable(dplyr::transmute(f, Rank = rank, Title = title, Citations = unit_citations, Needed = needed,
-                              `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")")), align = "clccc")
+                              `Next 12 months` = fmt_interval(f12_med, f12_lo, f12_hi, isTRUE(x$forecast_ok))), align = "clccc")
 ```
 
 ## Most impactful publications
@@ -91,15 +77,15 @@ knitr::kable(dplyr::transmute(f, Rank = rank, Title = title, Citations = unit_ci
 ```{r}
 knitr::kable(top_papers(b, a, "citations", 10) |>
   dplyr::transmute(Title = title, Year = as.integer(year), Venue = clean_venue(venue), Citations = fmt_n(unit_citations),
-                   FWCI = formatC(fwci, format = "f", digits = 2),
-                   `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")")), align = "lclccc")
+                   FWCI = fmt_n(fwci, 2),
+                   `Next 12 months` = fmt_interval(f12_med, f12_lo, f12_hi, isTRUE(x$forecast_ok))), align = "lclccc")
 ```
 
 **Table 4.** Highest field weighted impact (papers with at least ten citations).
 
 ```{r}
 knitr::kable(top_papers(b, a, "fwci", 5) |>
-  dplyr::transmute(Title = title, Year = as.integer(year), FWCI = formatC(fwci, format = "f", digits = 2),
+  dplyr::transmute(Title = title, Year = as.integer(year), FWCI = fmt_n(fwci, 2),
                    Percentile = fmt_pct(pct_value, 1), Citations = fmt_n(unit_citations)), align = "lcccc")
 ```
 

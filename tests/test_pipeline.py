@@ -75,6 +75,9 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(scholar, "via_scholarly", fake_gs)
     monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: OA_WORKS)
     monkeypatch.setattr(openalex, "search_title", lambda *a, **k: state.get("search", []))
+    # by-id refetch serves whatever the state holds under that id (title search hits live here)
+    monkeypatch.setattr(openalex, "fetch_by_ids",
+                        lambda ids, *a, **k: [w for w in state.get("by_id", []) if openalex.short_id(w["id"]) in ids])
     return con, cfg, state
 
 
@@ -228,8 +231,21 @@ def test_title_search_fallback(env):
     assert w["openalex_id"] == "W42" and w["match_method"] == "title_search" and w["author_position"] == 2
     # each unmatched work is searched once; a second run does not search again
     n = con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0]
-    S(con, cfg, "2026-10-11")
+    # The author filter never returns W42 (it sits on another author id); the next run must fetch it
+    # by id so its snapshot and counts refresh instead of silently dropping out of the OpenAlex record.
+    state["by_id"] = [oa_work("W42", "Growth of red spruce under partial harvesting in Maine", 2012, 25, "10.1/r",
+                              3, 2, 1.3, False, [(2025, 3), (2026, 3)])]
+    st2 = S(con, cfg, "2026-10-11")
     assert con.execute("SELECT COUNT(*) FROM title_lookups").fetchone()[0] == n
+    assert st2["n_openalex_by_id"] == 1
+    snap = con.execute("SELECT citations FROM work_snapshots WHERE run_id = ? AND work_id = ? AND source = 'openalex'",
+                       (st2["run_id"], w_id := con.execute("SELECT work_id FROM works WHERE openalex_id = 'W42'").fetchone()[0])).fetchone()
+    assert snap is not None and snap[0] == 25
+    assert st2["metrics_openalex"]["n_papers"] == st["metrics_openalex"]["n_papers"]
+    # a linked id that no longer resolves is flagged, not dropped silently
+    state["by_id"] = []
+    st3 = S(con, cfg, "2026-10-18")
+    assert any(r[0] == "stale_link" for r in con.execute("SELECT kind FROM flags WHERE run_id = ?", (st3["run_id"],)))
 
 
 def test_key_never_reaches_the_store(env, monkeypatch):
@@ -304,7 +320,9 @@ def test_annualized_metrics(env):
     # window 2021..2025: no Scholar paper published then; by_year 2024 + 2025 = 22
     assert ms["papers_5y"] == 0 and ms["cites_recent_papers"] == 0 and ms["h_recent"] == 0
     assert ms["cites_5y"] == 22 and ms["cites_per_year_5y"] == pytest.approx(22 / 5)
-    assert ms["h5"] == 2 and ms["i10_5y"] == 1  # Scholar reported values
+    # Scholar's reported five year values keep their own names: their window is six calendar years
+    assert ms["h5_reported"] == 2 and ms["i10_5y_reported"] == 1 and ms["cites_since_reported"] == 30
+    assert "h5" not in ms and "i10_5y" not in ms
     # c/y for dated papers: 40/17, 25/12, 12/9, 3/12, 2/18
     rates = sorted([40 / 17, 25 / 12, 12 / 9, 3 / 12, 2 / 18])
     assert ms["cites_per_paper_year_mean"] == pytest.approx(sum(rates) / 5)
@@ -314,3 +332,47 @@ def test_annualized_metrics(env):
     assert mo["cites_per_year_5y"] == pytest.approx(16 / 5)
     # OpenAlex recent papers (2021..2025): none of W1..W9 (2010, 2015, 2019, 2020)
     assert mo["papers_5y"] == 0
+    # per author indices use known author counts only: Scholar p4 and p5 have none
+    assert ms["n_no_authors"] == 2 and ms["author_count_coverage"] == pytest.approx(3 / 5)
+    # matched: p1 40/3, p2 25/4, p3 12/2 -> papers_per_author 1/3 + 1/4 + 1/2
+    assert ms["papers_per_author"] == pytest.approx(1 / 3 + 1 / 4 + 1 / 2)
+    assert ms["cites_per_author"] == pytest.approx(40 / 3 + 25 / 4 + 12 / 2)
+    assert ms["min_year"] == 2009
+
+
+def test_merge_target_without_snapshot_keeps_duplicate(env):
+    con, cfg, _ = env
+    S(con, cfg, "2026-10-04")
+    # p5 is Scholar only; merge the OpenAlex only W9 into it: Scholar folds nothing in (W9 has no
+    # Scholar snapshot) and OpenAlex must not lose W9's citation because its target has no OpenAlex row
+    p5 = con.execute("SELECT work_id FROM works WHERE gs_id = 'AUTH:p5'").fetchone()[0]
+    w9 = con.execute("SELECT work_id FROM works WHERE openalex_id = 'W9'").fetchone()[0]
+    con.execute("UPDATE works SET merged_into = ? WHERE work_id = ?", (p5, w9))
+    con.commit()
+    st = S(con, cfg, "2026-10-11")
+    assert st["metrics_openalex"]["n_papers"] == 4 and st["metrics_openalex"]["citations"] == 61
+
+
+def test_author_filter_drop_is_flagged_not_refetched(env, monkeypatch):
+    con, cfg, state = env
+    S(con, cfg, "2026-10-04")
+    # OpenAlex moves W9 to another author id: the author filter stops returning it
+    monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: [w for w in OA_WORKS if not w["id"].endswith("W9")])
+    state["by_id"] = OA_WORKS  # would serve W9 if asked
+    st = S(con, cfg, "2026-10-11")
+    assert "n_openalex_by_id" not in st  # nothing is title search linked, so nothing is refetched
+    assert st["metrics_openalex"]["n_papers"] == 3
+    flags = con.execute("SELECT kind, detail FROM flags WHERE run_id = ? AND kind = 'left_record'", (st["run_id"],)).fetchall()
+    assert len(flags) == 1 and "W9" in flags[0][1]
+
+
+def test_standin_duplicate_counts_in_window_and_fwci(env):
+    con, cfg, _ = env
+    S(con, cfg, "2026-10-04")
+    # W3 (2025 count 2, fwci 0.7) merged into Scholar only p5: OpenAlex keeps W3 as the stand in everywhere
+    p5 = con.execute("SELECT work_id FROM works WHERE gs_id = 'AUTH:p5'").fetchone()[0]
+    w3 = con.execute("SELECT work_id FROM works WHERE openalex_id = 'W3'").fetchone()[0]
+    con.execute("UPDATE works SET merged_into = ? WHERE work_id = ?", (p5, w3))
+    con.commit()
+    mo = S(con, cfg, "2026-10-11")["metrics_openalex"]
+    assert mo["cites_5y"] == 16 and mo["fwci_median"] == pytest.approx(0.9)

@@ -43,7 +43,7 @@ plot_trajectory <- function(b, ids, metric = "h", source = "scholar", focal = NU
     r <- b$pyc |> dplyr::filter(author_id %in% ids) |> dplyr::arrange(author_id, year) |>
       dplyr::group_by(author_id) |>
       dplyr::filter(year < as.integer(format(max(m$snapshot_date, Sys.Date()), "%Y"))) |>
-      dplyr::mutate(value = cumsum(citations), snapshot_date = as.Date(sprintf("%d-12-31", year))) |>
+      dplyr::mutate(value = cumsum(citations) + pre_hist[1], snapshot_date = as.Date(sprintf("%d-12-31", year))) |>
       dplyr::ungroup()
   }
   if (nrow(m) == 0 && (is.null(r) || nrow(r) == 0)) {
@@ -68,7 +68,8 @@ plot_trajectory <- function(b, ids, metric = "h", source = "scholar", focal = NU
     ggplot2::scale_y_continuous(labels = scales::label_comma()) +
     ggplot2::labs(x = NULL, y = mlab,
                   caption = paste0(.unit_lab(source), ". Solid: weekly snapshots. Dashed: year end values reconstructed from ",
-                                   if (source == "openalex") "per work yearly counts (ten year window)." else "the profile's citations per year.")) +
+                                   if (source == "openalex") "per work yearly counts (2012 onward)." else
+                                     "the profile's citations per year, offset by citations the histogram predates.")) +
     theme_pubtrack()
 }
 
@@ -79,17 +80,20 @@ plot_career <- function(b, ids, what = c("citations", "h"), focal = NULL) {
   lab <- setNames(.anames(b, names(pal)), names(pal))
   fy <- setNames(b$authors$first_year, b$authors$author_id)
   if (what == "citations") {
+    if (nrow(b$pyc) == 0) return(empty_plot("No Google Scholar citation history for the selected authors."))
     d <- b$pyc |> dplyr::filter(author_id %in% ids) |> dplyr::arrange(author_id, year) |>
-      dplyr::group_by(author_id) |> dplyr::mutate(value = cumsum(citations)) |> dplyr::ungroup() |>
+      dplyr::group_by(author_id) |> dplyr::mutate(value = cumsum(citations) + pre_hist[1]) |> dplyr::ungroup() |>
       dplyr::mutate(age = year - fy[author_id] + 1)
-    ylab <- "Cumulative citations"; cap <- "Google Scholar citations per year, cumulated and aligned on each author's first publication year."
+    ylab <- "Cumulative citations"
+    cap <- "Google Scholar citations per year, cumulated (offset by citations the profile histogram predates) and aligned on each author's first publication year. Authors without a Scholar profile are not shown."
   } else {
+    if (is.null(b$recon)) return(empty_plot("No OpenAlex year end reconstruction yet."))
     d <- b$recon |> dplyr::filter(author_id %in% ids, metric == "h") |>
       dplyr::mutate(age = year - fy[author_id] + 1)
-    now <- b$compare |> dplyr::filter(author_id %in% ids) |>
-      dplyr::transmute(author_id, value = h, age = academic_age, year = as.integer(format(snapshot_date, "%Y")))
+    now <- b$compare |> dplyr::filter(author_id %in% ids, !is.na(h_openalex)) |>
+      dplyr::transmute(author_id, value = h_openalex, age = academic_age, year = as.integer(format(openalex_date, "%Y")))
     d <- dplyr::bind_rows(d, now)
-    ylab <- "h index"; cap <- "OpenAlex year end h (ten year window) joined to the current h. Grey lines: Hirsch m = 1, 2, 3 (h = m times academic age)."
+    ylab <- "h index (OpenAlex)"; cap <- "OpenAlex year end h (reconstructed from per work yearly counts, 2012 onward) joined to the current OpenAlex h, so one source throughout. Grey lines: Hirsch m = 1, 2, 3 (h = m times academic age)."
   }
   d <- dplyr::filter(d, !is.na(age), age >= 1) |>
     dplyr::mutate(text = paste0("<b>", lab[author_id], "</b><br>Academic age ", age, " (", year, ")<br>", fmt_n(value)))
@@ -117,7 +121,7 @@ plot_fan <- function(b, aid, quantity = c("h", "citations_total")) {
                                     metric == ifelse(quantity == "h", "h", "citations"))
   hist <- if (quantity == "citations_total" && unit == "scholar" && nrow(b$pyc[b$pyc$author_id == aid, ]) > 0) {
     b$pyc |> dplyr::filter(author_id == aid) |> dplyr::arrange(year) |>
-      dplyr::mutate(value = cumsum(citations), snapshot_date = as.Date(sprintf("%d-12-31", year))) |>
+      dplyr::mutate(value = cumsum(citations) + pre_hist[1], snapshot_date = as.Date(sprintf("%d-12-31", year))) |>
       dplyr::filter(snapshot_date < min(fc$date))
   } else if (quantity == "h" && !is.null(b$recon)) {
     b$recon |> dplyr::filter(author_id == aid, metric == "h")
@@ -223,34 +227,46 @@ plot_lorenz <- function(b, ids, focal = NULL) {
 compare_metrics <- c(citations = "Citations", h = "h index", g = "g index", i10 = "i10 index", m_quotient = "m quotient",
                      hc = "Contemporary h", hI_norm = "hI norm", hm = "hm index", awcr = "AWCR", cites_per_paper = "Citations per paper",
                      cites_last_full_year = "Citations last year", growth_yoy = "Growth year on year",
-                     papers_per_year_5y = "Papers per year (5 y)", fwci_median = "Median FWCI", top10_share = "Top 10% share",
-                     proj_h_12m = "Projected h (12 mo)", share_first_or_sole = "First or sole author share",
-                     # Annualized: rates that compare authors at different career stages
+                     fwci_median = "Median FWCI (OA)", top10_share = "Top 10% share (OA)",
+                     proj_h_12m = "Projected h (12 mo)", share_first_or_sole = "First or sole author share (OA)",
+                     # Annualized: rates that compare authors at different career stages. Rows marked
+                     # (OA) are OpenAlex for every author; the rest are in each author's own unit.
                      papers_per_year = "Papers per career year", cites_per_year = "Citations per career year",
                      cites_per_paper_year_median = "Citations per paper per year (median)",
-                     cites_per_year_5y = "Citations per year (last 5 y)", h5 = "h5 (last 5 y)",
-                     papers_5y = "Papers (last 5 y)", h_recent = "h of papers from last 5 y",
-                     cites_per_recent_paper = "Citations per recent paper")
+                     cites_per_year_5y = "Citations per year, last 5 complete y (OA)", h5 = "h5, last 5 complete y (OA)",
+                     papers_5y = "Papers, last 5 complete y (OA)", h_recent = "h of papers from last 5 y (OA)",
+                     cites_per_recent_paper = "Citations per recent paper (OA)")
+heat_pct_metrics <- c("growth_yoy", "top10_share", "share_first_or_sole")
+heat_dec_metrics <- c("m_quotient", "cites_per_paper", "fwci_median", "papers_per_year", "cites_per_paper_year_median",
+                      "cites_per_recent_paper", "hm")
+fmt_heat <- function(metric, value) {
+  ifelse(is.na(value), "", ifelse(metric %in% heat_pct_metrics, fmt_pct(value),
+                                   ifelse(metric %in% heat_dec_metrics, fmt_n(value, 2), fmt_n(value))))
+}
 
 plot_heat <- function(b, ids, focal = NULL) {
-  cm <- b$compare |> dplyr::filter(author_id %in% ids)
-  d <- cm |> dplyr::select(author_id, name, dplyr::any_of(names(compare_metrics))) |>
-    tidyr::pivot_longer(-c(author_id, name), names_to = "metric", values_to = "value") |>
+  cm <- b$compare |> dplyr::filter(author_id %in% ids) |>
+    dplyr::mutate(col = paste0(name, " (", ifelse(unit == "scholar", "GS", "OA"), ")"),
+                  col = ifelse(duplicated(col) | duplicated(col, fromLast = TRUE), paste0(col, " [", author_id, "]"), col))
+  mixed <- length(unique(cm$unit)) > 1
+  d <- cm |> dplyr::select(author_id, col, dplyr::any_of(names(compare_metrics))) |>
+    tidyr::pivot_longer(-c(author_id, col), names_to = "metric", values_to = "value") |>
     dplyr::group_by(metric) |>
     dplyr::mutate(pct = if (sum(!is.na(value)) > 1) (rank(value, na.last = "keep") - 1) / (sum(!is.na(value)) - 1) else NA_real_) |>
     dplyr::ungroup() |>
     dplyr::mutate(metric_lab = factor(compare_metrics[metric], levels = rev(compare_metrics)),
-                  name = factor(name, levels = cm$name[order(cm$author_id != (focal %||% ""), -cm$h)]),
-                  lab = ifelse(is.na(value), "", ifelse(abs(value) < 10 & value != round(value),
-                               ifelse(metric %in% c("growth_yoy", "top10_share", "share_first_or_sole"), fmt_pct(value), formatC(value, format = "f", digits = 2)),
-                               fmt_n(value))),
-                  text = paste0("<b>", name, "</b><br>", metric_lab, ": ", lab, ifelse(is.na(pct), "", paste0("<br>Rank within set: ", fmt_pct(pct)))))
-  ggplot2::ggplot(d, ggplot2::aes(name, metric_lab, fill = pct, text = text)) +
+                  col = factor(col, levels = cm$col[order(cm$author_id != (focal %||% ""), -cm$h)]),
+                  lab = fmt_heat(metric, value),
+                  text = paste0("<b>", col, "</b><br>", metric_lab, ": ", lab, ifelse(is.na(pct), "", paste0("<br>Rank within set: ", fmt_pct(pct)))))
+  ggplot2::ggplot(d, ggplot2::aes(col, metric_lab, fill = pct, text = text)) +
     ggplot2::geom_tile(colour = "white", linewidth = 1.2) +
     ggplot2::geom_text(ggplot2::aes(label = lab), size = 3.6, colour = pt_col$ink) +
     ggplot2::scale_fill_gradient(low = "#f4f6f4", high = pt_col$crsf_sky, na.value = "white", limits = c(0, 1), guide = "none") +
     ggplot2::scale_x_discrete(position = "top") +
-    ggplot2::labs(x = NULL, y = NULL, caption = "Cell shade: rank within the selected authors (darker is higher).") +
+    ggplot2::labs(x = NULL, y = NULL,
+                  caption = paste0("Cell shade: rank within the selected authors (darker is higher). Column unit: GS = Google Scholar, OA = OpenAlex. ",
+                                   "Rows marked (OA) are OpenAlex for everyone.",
+                                   if (mixed) " Unmarked rows mix units across columns; Scholar counts run higher than OpenAlex for the same record." else "")) +
     theme_pubtrack() + ggplot2::theme(panel.grid = ggplot2::element_blank(), axis.line.x = ggplot2::element_blank(),
                                       axis.ticks.x = ggplot2::element_blank(), axis.text.x = ggplot2::element_text(face = "bold", colour = pt_col$ink))
 }
@@ -265,7 +281,7 @@ plot_projected_h <- function(b, ids, focal = NULL) {
     ggplot2::geom_point(ggplot2::aes(x = h), shape = 21, fill = "white", size = 3) +
     ggplot2::geom_point(ggplot2::aes(x = proj_h_12m), size = 3.5) +
     ggplot2::scale_colour_manual(values = pal, guide = "none") +
-    ggplot2::labs(x = "h index", y = NULL, caption = "Open circle: current h. Solid: median projection in 12 months. Bar: 80% interval.") +
+    ggplot2::labs(x = "h index", y = NULL, caption = "Open circle: current h. Solid: median projection in 12 months. Bar: 80% interval. Authors whose forecast check failed are not shown.") +
     theme_pubtrack() + ggplot2::theme(panel.grid.major.x = ggplot2::element_line(colour = "#e6ebe8"),
                                       panel.grid.major.y = ggplot2::element_blank())
 }

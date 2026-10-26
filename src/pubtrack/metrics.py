@@ -30,13 +30,17 @@ def h_index(c) -> int:
 
 
 def g_index(c) -> int:
-    """Largest g with the top g papers holding at least g^2 citations (capped at the paper count)."""
+    """Largest g with the top g papers holding at least g^2 citations. As in Publish or Perish the
+    list is padded with uncited papers, so g may exceed the paper count ([100] gives 10, not 1)."""
     s = sorted(c, reverse=True)
-    total, g = 0, 0
-    for i, v in enumerate(s, start=1):
-        total += v
+    total, g, i = 0, 0, 0
+    while True:
+        i += 1
+        total += s[i - 1] if i <= len(s) else 0
         if total >= i * i:
             g = i
+        elif i > len(s):
+            break
     return g
 
 
@@ -126,20 +130,24 @@ def window_bounds(cur_year: int, n: int = WINDOW_YEARS) -> tuple[int, int]:
 
 def window_citations_openalex(con, run_id: int, y0: int, y1: int) -> dict[int, int]:
     """Citations each included paper received in [y0, y1], from OpenAlex counts_by_year (merged
-    duplicates folded into their target). Papers with no counts in the window map to 0."""
+    duplicates folded into their target). Only works with an OpenAlex snapshot in this run count, so
+    a work that left the record does not keep contributing. Papers with no counts map to 0."""
     rows = con.execute(
         "SELECT w.work_id, w.merged_into, COALESCE(SUM(c.citations), 0) AS n "
-        "FROM works w JOIN runs r ON r.author_id = w.author_id "
+        "FROM works w JOIN work_snapshots s ON s.work_id = w.work_id AND s.source = 'openalex' AND s.run_id = ? "
         "LEFT JOIN work_year_counts c ON c.work_id = w.work_id AND c.source = 'openalex' "
         "AND c.year BETWEEN ? AND ? "
-        "WHERE r.run_id = ? AND w.excluded = 0 GROUP BY w.work_id", (y0, y1, run_id)).fetchall()
+        "WHERE w.excluded = 0 GROUP BY w.work_id", (run_id, y0, y1)).fetchall()
     out: dict[int, int] = {}
     for r in rows:
         if r["merged_into"] is None:
             out[r["work_id"]] = out.get(r["work_id"], 0) + int(r["n"])
     for r in rows:
-        if r["merged_into"] is not None and r["merged_into"] in out:
-            out[r["merged_into"]] += int(r["n"])
+        if r["merged_into"] is not None:
+            if r["merged_into"] in out:
+                out[r["merged_into"]] += int(r["n"])
+            else:  # target has no OpenAlex snapshot: the duplicate stands in, as in paper_table
+                out[r["work_id"]] = out.get(r["work_id"], 0) + int(r["n"])
     return out
 
 
@@ -152,8 +160,13 @@ def paper_table(con, run_id: int, source: str) -> list[dict]:
     ).fetchall()
     papers = {r["work_id"]: dict(r) for r in rows if not r["excluded"] and r["merged_into"] is None}
     for r in rows:
-        if r["merged_into"] is not None and not r["excluded"] and r["merged_into"] in papers:
-            papers[r["merged_into"]]["citations"] += r["citations"]
+        if r["merged_into"] is not None and not r["excluded"]:
+            if r["merged_into"] in papers:
+                papers[r["merged_into"]]["citations"] += r["citations"]
+            else:
+                # The merge target has no snapshot in this source (Scholar only target, OpenAlex only
+                # duplicate): the duplicate stands in for it rather than dropping its citations.
+                papers[r["work_id"]] = dict(r)
     return list(papers.values())
 
 
@@ -167,16 +180,23 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
     dated = [p for p in papers if p["year"]]
     cy = [p["citations"] for p in dated]
     yy = [max(cur_year - int(p["year"]) + 1, 1) for p in dated]
-    aa = [p["n_authors"] or 1 for p in dated]
-    fy = first_year or (min(int(p["year"]) for p in dated) if dated else cur_year)
+    # Per author indices use only papers whose author count is known (Scholar alone gives none;
+    # it comes from the matched OpenAlex record). Imputing one author inflated them by the match rate.
+    known = [p for p in dated if p["n_authors"]]
+    ck = [p["citations"] for p in known]
+    yk = [max(cur_year - int(p["year"]) + 1, 1) for p in known]
+    ak = [p["n_authors"] for p in known]
+    min_year = min(int(p["year"]) for p in dated) if dated else None
+    fy = first_year or (min_year if min_year else cur_year)
     A = max(cur_year - fy + 1, 1)
 
     h = h_index(c)
-    hin = hi_norm(cy, aa)
+    hin = hi_norm(ck, ak)
     out = {
         "n_papers": len(papers),
         "n_undated": len(papers) - len(dated),
-        "n_no_authors": sum(1 for p in dated if not p["n_authors"]),
+        "n_no_authors": len(dated) - len(known),
+        "author_count_coverage": len(known) / len(dated) if dated else 0.0,
         "citations": sum(c),
         "h": h,
         "g": g_index(c),
@@ -189,15 +209,17 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
         "annual_h": annual_h(cy, yy),
         "awcr": awcr(cy, yy),
         "aw": math.sqrt(awcr(cy, yy)),
-        "awcr_pa": awcr_pa(cy, yy, aa),
+        "awcr_pa": awcr_pa(ck, yk, ak),
         "academic_age": A,
-        # Publish or Perish per author measures (author count unknown counts as 1, as for hI norm)
-        "hm": hm_index(cy, aa),
-        "cites_per_author": float(sum(ci / ai for ci, ai in zip(cy, aa))),
-        "papers_per_author": float(sum(1 / ai for ai in aa)),
+        # Publish or Perish per author measures, over papers with a known author count
+        "hm": hm_index(ck, ak),
+        "cites_per_author": float(sum(ci / ai for ci, ai in zip(ck, ak))),
+        "papers_per_author": float(sum(1 / ai for ai in ak)),
         "cites_per_year": sum(c) / A,
         "cites_per_paper": sum(c) / len(c),
     }
+    if min_year:
+        out["min_year"] = min_year
     for n in (1, 2, 5, 10, 20):
         out[f"acc{n}"] = acc(c, n)
 
@@ -220,10 +242,9 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
     out["h_recent"] = h_index(rc)
     if recent:
         out["cites_per_recent_paper"] = sum(rc) / len(rc)
-    known = [p["n_authors"] for p in dated if p["n_authors"]]
-    if known:
-        out["authors_per_paper_mean"] = statistics.fmean(known)
-        out["authors_per_paper_median"] = statistics.median(known)
+    if ak:
+        out["authors_per_paper_mean"] = statistics.fmean(ak)
+        out["authors_per_paper_median"] = statistics.median(ak)
 
     if source == "openalex":
         # Citations received in the window, per paper: h5, i10 (5 y), total and rate.
@@ -233,10 +254,10 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
         out["cites_per_year_5y"] = sum(wv) / WINDOW_YEARS
         out["h5"] = h_index(wv)
         out["i10_5y"] = i10(wv)
-        imp = con.execute(
-            "SELECT i.fwci, i.top1, i.top10 FROM work_impact i JOIN works w USING (work_id) "
-            "WHERE i.run_id = ? AND w.excluded = 0 AND w.merged_into IS NULL", (run_id,),
-        ).fetchall()
+        ids_in = {p["work_id"] for p in papers}  # same stand-in rule as paper_table
+        imp = [r for r in con.execute(
+            "SELECT i.work_id, i.fwci, i.top1, i.top10 FROM work_impact i WHERE i.run_id = ?", (run_id,),
+        ).fetchall() if r["work_id"] in ids_in]
         f = [r["fwci"] for r in imp if r["fwci"] is not None]
         if f:
             out["fwci_median"] = statistics.median(f)
@@ -249,16 +270,19 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
             out["top1_share"] = sum(t1) / len(t1)
 
     if source == "scholar":
-        # Scholar reports h5 and i10 (5 y) over "since year" = current year minus 4, so the window
-        # includes the partial current year; stored as reported. cites_5y uses the complete year
-        # histogram so it matches the OpenAlex window definition.
-        prof = con.execute("SELECT h5_reported, i10_5y_reported FROM profile_snapshots WHERE run_id = ?",
-                           (run_id,)).fetchone()
+        # Scholar's "since" year is the current year minus 5, so its reported h5 and i10 cover six
+        # calendar years including the partial current one, not the five complete years used for
+        # the OpenAlex window. They are stored under their own names, never as h5 / i10_5y.
+        # cites_5y uses the complete year histogram so it matches the OpenAlex window definition.
+        prof = con.execute("SELECT h5_reported, i10_5y_reported, citations_5y FROM profile_snapshots "
+                           "WHERE run_id = ?", (run_id,)).fetchone()
         if prof:
             if prof["h5_reported"] is not None:
-                out["h5"] = prof["h5_reported"]
+                out["h5_reported"] = prof["h5_reported"]
             if prof["i10_5y_reported"] is not None:
-                out["i10_5y"] = prof["i10_5y_reported"]
+                out["i10_5y_reported"] = prof["i10_5y_reported"]
+            if prof["citations_5y"] is not None:
+                out["cites_since_reported"] = prof["citations_5y"]
         by_year = con.execute("SELECT year, citations FROM profile_year_counts WHERE run_id = ?",
                               (run_id,)).fetchall()
         if by_year:
@@ -282,12 +306,14 @@ def interim_rate(con, run_id: int) -> float | None:
     """Mean OpenAlex citations per year over the last two complete years (used until velocity exists)."""
     run = con.execute("SELECT snapshot_date, author_id FROM runs WHERE run_id = ?", (run_id,)).fetchone()
     y = date.fromisoformat(run["snapshot_date"]).year
-    r = con.execute(
-        "SELECT SUM(c.citations) FROM work_year_counts c JOIN works w USING (work_id) "
-        "WHERE w.author_id = ? AND c.source = 'openalex' AND c.year IN (?, ?) AND w.excluded = 0 "
-        "AND w.merged_into IS NULL", (run["author_id"], y - 1, y - 2),
-    ).fetchone()[0]
-    return r / 2 if r is not None else None
+    ids_in = {p["work_id"] for p in paper_table(con, run_id, "openalex")}
+    if not ids_in:
+        return None
+    rows = con.execute(
+        "SELECT c.work_id, SUM(c.citations) AS n FROM work_year_counts c "
+        "WHERE c.source = 'openalex' AND c.year IN (?, ?) GROUP BY c.work_id", (y - 1, y - 2),
+    ).fetchall()
+    return sum(int(r["n"]) for r in rows if r["work_id"] in ids_in) / 2
 
 
 def store(con, run_id: int, source: str, values: dict[str, float]) -> None:

@@ -12,7 +12,7 @@ BASE = "https://api.openalex.org"
 SELECT = ",".join([
     "id", "doi", "display_name", "publication_year", "type", "authorships",
     "cited_by_count", "counts_by_year", "fwci", "citation_normalized_percentile",
-    "primary_location",
+    "primary_location", "is_authors_truncated",
 ])
 
 
@@ -79,36 +79,71 @@ def search_title(title: str, mailto: str = "", api_key: str = "", per_page: int 
 
 
 PAGE_LIMIT = 10_000  # OpenAlex basic paging stops at 10,000 results; cursor paging has no limit
+PER_PAGE = 200
+ID_CHUNK = 50        # OpenAlex caps a |-joined filter at 50 values
 
 
-def fetch_works(author_ids: list[str], mailto: str = "", api_key: str = "") -> list[dict]:
-    """All works for one or more OpenAlex author ids (author disambiguation can split a person).
-
-    Since October 2026 OpenAlex returns 401 on cursor paging past the first page without an API
-    key. With a key we page by cursor (no result limit); without one we page by number, which stays
-    free up to 10,000 results, far beyond any single author's record."""
-    flt = "author.id:" + "|".join(author_ids)
+def _paged(flt: str, mailto: str, api_key: str) -> list[dict]:
+    """Every work matching a filter. Since October 2026 OpenAlex returns 401 on cursor paging past
+    the first page without an API key. With a key we page by cursor (no result limit); without one
+    we page by number with a fixed sort, free up to 10,000 results. Either way the result count is
+    checked against meta.count so a short read never passes as a complete one."""
     out: list[dict] = []
+    total = None
     if api_key:
         cursor = "*"
         while cursor:
-            js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=200, cursor=cursor))
+            js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=PER_PAGE, cursor=cursor))
+            meta = js.get("meta") or {}
+            if "count" not in meta:
+                raise OpenAlexError("OpenAlex response carries no meta.count; refusing a possibly partial read")
+            total = int(meta["count"]) if total is None else total
             out.extend(js.get("results", []))
             cursor = js.get("meta", {}).get("next_cursor")
             if not js.get("results"):
                 break
-        return out
-    page = 1
-    while True:
-        js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=200, page=page))
-        res = js.get("results", [])
-        out.extend(res)
-        total = int((js.get("meta") or {}).get("count") or 0)
-        if not res or len(out) >= total:
-            break
-        page += 1
-        if (page - 1) * 200 >= PAGE_LIMIT:
-            raise OpenAlexError(f"record exceeds {PAGE_LIMIT} works; set OPENALEX_API_KEY for cursor paging")
+    else:
+        page = 1
+        while True:
+            js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=PER_PAGE, page=page,
+                                        sort="publication_date:desc"))
+            meta = js.get("meta") or {}
+            if "count" not in meta:
+                raise OpenAlexError("OpenAlex response carries no meta.count; refusing a possibly partial read")
+            total = int(meta["count"]) if total is None else total
+            if total > PAGE_LIMIT:
+                raise OpenAlexError(f"{total} works exceed the {PAGE_LIMIT} page paging limit; "
+                                    "set OPENALEX_API_KEY for cursor paging")
+            res = js.get("results", [])
+            out.extend(res)
+            if not res or len(out) >= total:
+                break
+            page += 1
+    seen, uniq = set(), []
+    for w in out:
+        if w.get("id") not in seen:
+            seen.add(w.get("id"))
+            uniq.append(w)
+    if total is not None and len(uniq) < total:
+        raise OpenAlexError(f"OpenAlex returned {len(uniq)} distinct works of {total} for filter {flt[:60]}")
+    return uniq
+
+
+def fetch_works(author_ids: list[str], mailto: str = "", api_key: str = "") -> list[dict]:
+    """All works for one or more OpenAlex author ids (author disambiguation can split a person)."""
+    return _paged("author.id:" + "|".join(author_ids), mailto, api_key)
+
+
+def fetch_by_ids(openalex_ids: list[str], mailto: str = "", api_key: str = "") -> list[dict]:
+    """Works by OpenAlex id, for records linked by title search that the author filter does not
+    return (they sit on another author id). Fetched in chunks of 50; a missing id is simply absent."""
+    out: list[dict] = []
+    ids = [i for i in dict.fromkeys(openalex_ids) if i]
+    for k in range(0, len(ids), ID_CHUNK):
+        chunk = ids[k:k + ID_CHUNK]
+        js = _get("/works", _params(mailto, api_key, filter="ids.openalex:" + "|".join(chunk), select=SELECT,
+                                    per_page=ID_CHUNK))
+        out.extend(js.get("results", []))
     return out
 
 
@@ -126,6 +161,9 @@ def _author_fields(work: dict, author_ids: set[str], surname: str) -> tuple[str,
                 pos = i
                 break
     n = len(auths) or None
+    if work.get("is_authors_truncated"):
+        # OpenAlex lists at most 100 authorships; the count and last-author flag are unknown.
+        return "; ".join(names) + "; ...", None, pos, None
     is_last = int(pos == n) if pos and n else None
     return "; ".join(names), n, pos, is_last
 
@@ -170,6 +208,7 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
             "INSERT OR REPLACE INTO work_snapshots(run_id, work_id, source, citations) VALUES (?, ?, 'openalex', ?)",
             (run_id, work_id, int(w.get("cited_by_count") or 0)),
         )
+        con.execute("DELETE FROM work_year_counts WHERE work_id = ? AND source = 'openalex'", (work_id,))
         for c in w.get("counts_by_year") or []:
             con.execute(
                 "INSERT OR REPLACE INTO work_year_counts(work_id, year, source, citations, run_id) "

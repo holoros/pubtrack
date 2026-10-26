@@ -156,7 +156,7 @@ ui <- page_navbar(
       pcard("Recent runs", DTOutput("runs_tbl")),
       pcard("Flags on each author's latest run", DTOutput("flags_tbl")),
       pcard("Works shared between tracked authors", DTOutput("shared_tbl"))),
-    card(card_header("Methods"), card_body(HTML(methods_html())))
+    card(card_header("Methods"), card_body(HTML(methods_html(B$nsim))))
   ),
   nav_spacer(),
   nav_item(tags$span(class = "navbar-text small", style = "color:#c8e2f6", textOutput("asof", inline = TRUE)))
@@ -169,7 +169,12 @@ server <- function(input, output, session) {
   cm <- reactive(B$compare[B$compare$author_id == fa(), ])
   focal_papers <- reactive(B$papers[B$papers$author_id == fa() & !is.na(B$papers$unit_citations), ])
 
-  output$asof <- renderText(paste("As of", format(cm()$snapshot_date, "%d %b %Y")))
+  output$asof <- renderText({
+    x <- cm()
+    if (!is.na(x$scholar_date) && !is.na(x$openalex_date) && x$scholar_date != x$openalex_date)
+      paste0("Scholar as of ", format(x$scholar_date, "%d %b %Y"), ", OpenAlex as of ", format(x$openalex_date, "%d %b %Y"))
+    else paste("As of", format(x$unit_date, "%d %b %Y"))
+  })
 
   # ---- overview
   delta <- function(aid, unit, metric, days) {
@@ -193,13 +198,13 @@ server <- function(input, output, session) {
                 theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink)),
       value_box("Projected h, 12 months",
                 if (is.na(x$proj_h_12m) || !isTRUE(x$forecast_ok)) "n/a" else round(x$proj_h_12m),
-                div(class = "vb-sub", if (!isTRUE(x$forecast_ok)) "Forecast check not passed" else
+                div(class = "vb-sub", if (!isTRUE(x$bt_ran)) "Forecast check unavailable" else if (!isTRUE(x$forecast_ok)) "Forecast check failed" else
                   paste0("80% interval ", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi)),
                 showcase = bs_icon("binoculars"), theme = value_box_theme(bg = pt_col$crsf_green, fg = "#ffffff")),
-      value_box("Median FWCI", if (is.na(x$fwci_median)) "n/a" else formatC(x$fwci_median, format = "f", digits = 2),
+      value_box("Median FWCI", fmt_n(x$fwci_median, 2),
                 div(class = "vb-sub", if (!is.na(x$top10_share)) paste0(fmt_pct(x$top10_share), " of papers in top 10%")),
                 showcase = bs_icon("globe2"), theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink)),
-      value_box(paste("Citations in", as.integer(format(x$snapshot_date, "%Y")) - 1), fmt_n(x$cites_last_full_year),
+      value_box(paste("Citations in", as.integer(format(x$unit_date, "%Y")) - 1), fmt_n(x$cites_last_full_year),
                 div(class = "vb-sub", if (!is.na(x$growth_yoy)) paste0(fmt_signed(100 * x$growth_yoy), "% on the year before")),
                 showcase = bs_icon("calendar3"), theme = value_box_theme(bg = "#ffffff", fg = pt_col$ink))
     )
@@ -228,8 +233,8 @@ server <- function(input, output, session) {
       transmute(Author = name, Source = src_labs[unit], Papers = n_papers, Citations = citations, h, g, i10,
                 `m quotient` = round(m_quotient, 2), hc, `hI norm` = hI_norm, hm = round(hm, 1), `Median FWCI` = round(fwci_median, 2),
                 `Top 10%` = fmt_pct(top10_share), `Citations last year` = cites_last_full_year,
-                `Growth` = fmt_pct(growth_yoy), `Gini` = round(gini, 2), `Projected h` = proj_h_12m,
-                `h 80% interval` = paste(proj_h_12m_lo, "to", proj_h_12m_hi))
+                `Growth` = fmt_pct(growth_yoy), `Gini` = round(gini, 2), `Projected h` = fmt_n(proj_h_12m),
+                `h 80% interval` = ifelse(is.na(proj_h_12m), "n/a", paste(proj_h_12m_lo, "to", proj_h_12m_hi)))
   })
   output$compare_tbl <- renderDT(datatable(compare_view(), rownames = FALSE, options = list(dom = "t", scrollX = TRUE, pageLength = 50)))
   output$dl_compare <- downloadHandler(function() sprintf("%s_pubtrack-compare_DATA.csv", Sys.Date()),
@@ -240,7 +245,7 @@ server <- function(input, output, session) {
   output$delta_tbl <- renderDT({
     d <- lapply(ids(), function(a) {
       x <- B$compare[B$compare$author_id == a, ]
-      tibble(Author = x$name, Metric = metric_labels[[input$traj_metric]] %||% input$traj_metric,
+      tibble(Author = x$name, Metric = if (input$traj_metric %in% names(metric_labels)) metric_labels[[input$traj_metric]] else input$traj_metric,
              Now = { v <- B$metrics |> filter(author_id == a, source == input$source, metric == input$traj_metric, origin == "sync") |>
                        arrange(snapshot_date) |> tail(1); if (nrow(v)) round(v$value, 2) else NA },
              `4 weeks` = round(delta(a, input$source, input$traj_metric, 28), 2),
@@ -284,20 +289,20 @@ server <- function(input, output, session) {
   output$frontier_tbl <- renderDT({
     f <- h_frontier(focal_papers())
     datatable(transmute(f, Rank = rank, Title = title, Citations = unit_citations, Needed = needed,
-                        `Next 12 mo` = round(f12_med)),
+                        `Next 12 mo` = fmt_interval(f12_med, f12_lo, f12_hi, isTRUE(cm()$forecast_ok))),
               rownames = FALSE, options = list(dom = "t", pageLength = 15, columnDefs = list(list(className = "dt-left", targets = 1))))
   })
   output$risers_tbl <- renderDT({
     r <- focal_papers() |> arrange(desc(f12_med)) |> head(10)
-    datatable(transmute(r, Title = title, Year = year, Citations = unit_citations, `Next 12 mo` = round(f12_med),
-                        `80% interval` = paste(round(f12_lo), "to", round(f12_hi)), Method = fc_method),
+    datatable(transmute(r, Title = title, Year = year, Citations = unit_citations,
+                        `Next 12 mo (80% interval)` = fmt_interval(f12_med, f12_lo, f12_hi, isTRUE(cm()$forecast_ok)), Method = fc_method),
               rownames = FALSE, options = list(dom = "t", columnDefs = list(list(className = "dt-left", targets = 0))))
   })
   output$bt_card <- renderUI({
     bt <- B$backtest[B$backtest$author_id == fa(), ]
     x <- cm()
     if (is.null(bt) || nrow(bt) == 0) {
-      return(card(card_body(class = "small", "Forecast check unavailable: fewer than ten papers with two or more years of OpenAlex counts.")))
+      return(card(card_body(class = "small", "Forecast check unavailable: fewer than ten papers with OpenAlex citations published before last year, so projections are not shown.")))
     }
     ok <- isTRUE(x$forecast_ok)
     card(class = if (ok) "border-success" else "border-danger",
@@ -337,8 +342,10 @@ server <- function(input, output, session) {
     tagList(
       div(class = "mt-3 mb-2", div(class = "eyebrow", "Impact report"),
           h2(class = "report-h", x$name),
-          p(class = "text-muted", paste0("Data as of ", format(x$snapshot_date, "%d %B %Y"), ". Citation counts from ", .unit_lab(x$unit),
-                                         "; field impact from OpenAlex. ", if (nzchar(x$orcid)) paste0("ORCID ", x$orcid, ".") else ""))),
+          p(class = "text-muted", paste0("Citation counts from ", .unit_lab(x$unit), " as of ", format(x$unit_date, "%d %B %Y"),
+                                         "; field impact and five year window from OpenAlex",
+                                         if (!is.na(x$openalex_date) && x$openalex_date != x$unit_date) paste0(" as of ", format(x$openalex_date, "%d %B %Y")) else "",
+                                         ". ", if (nzchar(x$orcid)) paste0("ORCID ", x$orcid, ".") else ""))),
       div(class = "stmt mb-3", stmt_a()),
       card(card_header("Key indices"), card_body(tableOutput("rep_tbl"))),
       layout_columns(col_widths = c(6, 6),
@@ -356,25 +363,15 @@ server <- function(input, output, session) {
           card(card_header("Citations per year and forecast"), card_body(plotOutput("rep_pa", height = "300px")))))
     )
   })
+  x_rep <- reactive(B$compare[B$compare$author_id == ra(), ])
   output$rep_tbl <- renderTable({
-    x <- B$compare[B$compare$author_id == ra(), ]
-    tibble(Metric = c("Papers", "Citations", "h index", "g index", "i10 index", "m quotient", "Contemporary h", "hI norm",
-                      "Papers per career year", "Citations per career year", "Citations per year, last 5 complete years",
-             "h5", "Citations per paper per year (median)", "Papers published, last 5 complete years",
-             "h of papers from last 5 years", "Median FWCI", "Share in top 10%", "Citations last full year", "Projected h in 12 months (80% interval)",
-                      "Projected new citations in 12 months (80% interval)"),
-           Value = c(fmt_n(x$n_papers), fmt_n(x$citations), x$h, x$g, x$i10, formatC(x$m_quotient, format = "f", digits = 2),
-                     fmt_n(x$hc), fmt_n(x$hI_norm),
-            formatC(x$papers_per_year, format = "f", digits = 1), fmt_n(x$cites_per_year), fmt_n(x$cites_per_year_5y),
-            fmt_n(x$h5), formatC(x$cites_per_paper_year_median, format = "f", digits = 2), fmt_n(x$papers_5y),
-            fmt_n(x$h_recent), formatC(x$fwci_median, format = "f", digits = 2), fmt_pct(x$top10_share),
-                     fmt_n(x$cites_last_full_year), paste0(x$proj_h_12m, " (", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi, ")"),
-                     paste0(fmt_n(x$proj_cites_12m), " (", fmt_n(x$proj_cites_12m_lo), " to ", fmt_n(x$proj_cites_12m_hi), ")")))
+    x <- x_rep()
+    key_indices_table(x)
   }, striped = FALSE, align = "lc", width = "100%")
   output$rep_top <- renderTable({
     top_papers(B, ra(), input$rep_rank, 10) |>
       transmute(Title = title, Year = as.integer(year), Venue = clean_venue(venue), Citations = fmt_n(unit_citations),
-                FWCI = formatC(fwci, format = "f", digits = 2), `Next 12 months` = paste0(round(f12_med), " (", round(f12_lo), " to ", round(f12_hi), ")"))
+                FWCI = fmt_n(fwci, 2), `Next 12 months` = fmt_interval(f12_med, f12_lo, f12_hi, gated = isTRUE(x_rep()$forecast_ok)))
   }, align = "lccccc", width = "100%")
   output$rep_traj <- renderPlot(wrap_caption(plot_trajectory(B, ra(), "h", B$compare$unit[B$compare$author_id == ra()], ra()) +
                                   ggplot2::theme(legend.position = "none")), res = 110)

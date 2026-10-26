@@ -106,8 +106,41 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
         else:
             try:
                 works = openalex.fetch_works(ids, s.mailto, s.openalex_key)
+                # Works linked earlier by title search live on other OpenAlex author ids, so the
+                # author filter never returns them again; fetch those by id so their counts refresh.
+                got = {openalex.short_id(w.get("id")) for w in works}
+                # Only title search links are refetched: those sit on other author ids by
+                # construction. A work the author filter used to return and no longer does is
+                # flagged, not kept, so OpenAlex reattributions stay visible.
+                linked = [r[0] for r in con.execute(
+                    "SELECT openalex_id FROM works WHERE author_id = ? AND openalex_id IS NOT NULL "
+                    "AND excluded = 0 AND match_method = 'title_search'", (author.id,)).fetchall() if r[0] not in got]
+                if linked:
+                    extra = openalex.fetch_by_ids(linked, s.mailto, s.openalex_key)
+                    works = works + extra
+                    status["n_openalex_by_id"] = len(extra)
+                prev = con.execute(
+                    "SELECT run_id FROM runs WHERE author_id = ? AND openalex_status = 'ok' AND run_id < ? "
+                    "ORDER BY run_id DESC LIMIT 1", (author.id, run_id)).fetchone()
                 status["n_openalex"] = openalex.store(con, run_id, works, ids, author.surname, today)
                 status["openalex_status"] = "ok"
+                if linked:
+                    stored = {r[0] for r in con.execute(
+                        "SELECT w.openalex_id FROM work_snapshots s JOIN works w USING (work_id) "
+                        "WHERE s.run_id = ? AND s.source = 'openalex'", (run_id,)).fetchall()}
+                    for oid in sorted(set(linked) - stored):
+                        add_flag(con, run_id, "stale_link", f"OpenAlex id {oid} no longer resolves as a research work; "
+                                 "counts not refreshed")
+                if prev:
+                    for r in con.execute(
+                        "SELECT w.work_id, w.openalex_id, w.title FROM work_snapshots p JOIN works w USING (work_id) "
+                        "WHERE p.run_id = ? AND p.source = 'openalex' AND w.excluded = 0 AND NOT EXISTS "
+                        "(SELECT 1 FROM work_snapshots c WHERE c.run_id = ? AND c.source = 'openalex' AND c.work_id = w.work_id)",
+                        (prev["run_id"], run_id)).fetchall():
+                        add_flag(con, run_id, "left_record",
+                                 f"{r['openalex_id']} no longer returned for this author: {r['title'][:80]}", r["work_id"])
+                if status["n_openalex"] == 0:
+                    messages.append("OpenAlex: no works stored")
             except Exception as e:
                 status["openalex_status"] = "failed"
                 messages.append(f"OpenAlex: {e}")
@@ -125,9 +158,18 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
     messages += overrides.apply(con, author.id, "post", run_id)
     messages += run_checks(con, run_id, author.id, raw)
 
+    first_year_flagged = False
     for src in ("scholar", "openalex"):
         if status[f"{src}_status"] == "ok":
             vals = metrics.compute(con, run_id, src, author.first_year)
+            if not vals:
+                add_flag(con, run_id, "empty", f"{src}: no included papers, no metrics stored")
+                messages.append(f"{src}: no metrics (no included papers)")
+                continue
+            if author.first_year and vals.get("min_year") and vals["min_year"] < author.first_year and not first_year_flagged:
+                first_year_flagged = True
+                add_flag(con, run_id, "first_year",
+                         f"earliest {src} paper {int(vals['min_year'])} precedes first_year {author.first_year}")
             if src == "openalex":
                 ir = metrics.interim_rate(con, run_id)
                 if ir is not None:

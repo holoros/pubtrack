@@ -3,7 +3,12 @@
 # browser (Shinylive) only filters and draws. Every number traces to a run in data/runs.csv.
 
 h_of <- function(x) { x <- sort(x[!is.na(x)], decreasing = TRUE); sum(x >= seq_along(x)) }
-g_of <- function(x) { x <- sort(x[!is.na(x)], decreasing = TRUE); sum(cumsum(x) >= seq_along(x)^2) }
+# g index padded with uncited papers as in Publish or Perish (and the collector): g may exceed n.
+g_of <- function(x) {
+  x <- sort(x[!is.na(x)], decreasing = TRUE); g <- sum(cumsum(x) >= seq_along(x)^2)
+  if (g == length(x)) g <- max(g, floor(sqrt(sum(x))))
+  g
+}
 gini_of <- function(x) {
   x <- sort(x[!is.na(x)]); n <- length(x)
   if (n < 2 || sum(x) == 0) return(NA_real_)
@@ -91,7 +96,7 @@ author_papers <- function(s, aid, rs, ro) {
 }
 
 # OpenAlex reconstruction of year end indices: c_i(Y) = cited_by_count now minus citations after Y.
-# Exact within the ten year window OpenAlex keeps per work; drawn dashed, never as observations.
+# Exact where OpenAlex per work yearly counts exist (2012 onward); drawn dashed, never as observations.
 reconstruct <- function(s, aid, ro) {
   if (is.na(ro)) return(NULL)
   w <- s$works[s$works$author_id == aid & s$works$excluded == 0 & is.na(s$works$merged_into), c("work_id", "year")]
@@ -117,7 +122,8 @@ metric_labels <- c(
   fwci_median = "Median FWCI", fwci_mean = "Mean FWCI", top10_share = "Share in top 10%",
   top1_share = "Share in top 1%", velocity_per_year = "Citation velocity (per year)",
   interim_rate_per_year = "Interim rate (per year)", n_papers = "Papers", academic_age = "Academic age",
-  hm = "hm index (fractional)", cites_per_author = "Citations per author", papers_per_author = "Papers per author",
+  hm = "hm index (fractional)", cites_per_author = "Citations per author (known author count papers)",
+  papers_per_author = "Papers per author (known author count papers)",
   cites_per_year = "Citations per year of career", cites_per_paper = "Citations per paper",
   acc1 = "acc1 (papers with 1 or more citations)", acc5 = "acc5", acc10 = "acc10", acc20 = "acc20",
   authors_per_paper_mean = "Authors per paper (mean)",
@@ -125,40 +131,48 @@ metric_labels <- c(
   papers_per_year = "Papers per career year", g_per_year = "g per career year", i10_per_year = "i10 per career year",
   cites_per_paper_year_mean = "Citations per paper per year (mean)",
   cites_per_paper_year_median = "Citations per paper per year (median)",
-  cites_5y = "Citations received, last 5 years", cites_per_year_5y = "Citations per year, last 5 years",
-  h5 = "h5 (last 5 years)", i10_5y = "i10, last 5 years",
-  papers_5y = "Papers published, last 5 years", cites_recent_papers = "Citations to papers from last 5 years",
-  h_recent = "h of papers from last 5 years", cites_per_recent_paper = "Citations per recent paper"
+  cites_5y = "Citations received, last 5 complete years", cites_per_year_5y = "Citations per year, last 5 complete years",
+  h5 = "h5 (last 5 complete years)", i10_5y = "i10, last 5 complete years",
+  papers_5y = "Papers published, last 5 complete years", cites_recent_papers = "Citations to papers from last 5 complete years",
+  h_recent = "h of papers from last 5 complete years", cites_per_recent_paper = "Citations per recent paper",
+  h5_reported = "h5 as reported by Scholar (6 year window)", i10_5y_reported = "i10 (5 y) as reported by Scholar",
+  cites_since_reported = "Citations since year as reported by Scholar", author_count_coverage = "Share of papers with known author count"
 )
 
 # Annualized measures for one author from the bundle itself, so they exist for every author at once
-# (the collector stores the same quantities per run for the trajectory view). Window: the last five
-# complete calendar years before the snapshot. Scholar's h5 and i10 (5 y) are its reported values,
-# whose "since" window also includes the partial current year.
-annualized_block <- function(p, c_unit_by_paper, A, cy, wyc, pyc, unit, h5_rep = NA, i10_5y_rep = NA) {
+# (the collector stores the same quantities per run for the trajectory view). Rates per career year
+# and per paper year are in the author's unit. The five year window (last five complete calendar
+# years before the snapshot) and the recent work block are always OpenAlex, whatever the unit, so
+# every author is measured on the same source and window. Scholar's reported h5 and i10 (5 y) cover
+# six calendar years including the partial current one and are carried separately as *_reported.
+annualized_block <- function(p, c_unit_by_paper, A, cy, wyc, h5_rep = NA, i10_5y_rep = NA) {
   y0 <- cy - 5; y1 <- cy - 1
   ok <- !is.na(c_unit_by_paper)
   cc <- c_unit_by_paper[ok]; yr <- p$year[ok]
   age <- pmax(cy - yr + 1, 1)
   rate <- (cc / age)[!is.na(yr)]
-  recent <- !is.na(yr) & yr >= y0 & yr <= y1
-  rc <- cc[recent]
-  if (unit == "openalex") {
+  # OpenAlex part: papers with an OpenAlex count
+  oa <- !is.na(p$openalex)
+  oc <- p$openalex[oa]; oy <- p$year[oa]
+  recent <- !is.na(oy) & oy >= y0 & oy <= y1
+  rc <- oc[recent]
+  if (any(oa)) {
     wv <- wyc |> dplyr::filter(year >= y0, year <= y1) |> dplyr::group_by(work_id) |>
       dplyr::summarise(n = sum(citations), .groups = "drop")
-    wv <- dplyr::coalesce(wv$n[match(p$work_id[ok], wv$work_id)], 0L)
+    wv <- dplyr::coalesce(wv$n[match(p$work_id[oa], wv$work_id)], 0L)
     c5 <- sum(wv); h5 <- h_of(wv); i10_5 <- sum(wv >= 10)
   } else {
-    c5 <- if (!is.null(pyc) && nrow(pyc)) sum(pyc$citations[pyc$year >= y0 & pyc$year <= y1]) else NA_real_
-    h5 <- h5_rep; i10_5 <- i10_5y_rep
+    c5 <- NA_real_; h5 <- NA_integer_; i10_5 <- NA_integer_
   }
   tibble::tibble(
     papers_per_year = length(cc) / A, g_per_year = g_of(cc) / A, i10_per_year = sum(cc >= 10) / A,
     cites_per_paper_year_mean = if (length(rate)) mean(rate) else NA_real_,
     cites_per_paper_year_median = if (length(rate)) stats::median(rate) else NA_real_,
     cites_5y = c5, cites_per_year_5y = c5 / 5, h5 = h5, i10_5y = i10_5,
-    papers_5y = sum(recent), cites_recent_papers = sum(rc), h_recent = h_of(rc),
-    cites_per_recent_paper = if (length(rc)) mean(rc) else NA_real_
+    papers_5y = if (any(oa)) sum(recent) else NA_integer_, cites_recent_papers = if (any(oa)) sum(rc) else NA_real_,
+    h_recent = if (any(oa)) h_of(rc) else NA_integer_,
+    cites_per_recent_paper = if (length(rc)) mean(rc) else NA_real_,
+    h5_reported = h5_rep, i10_5y_reported = i10_5y_rep
   )
 }
 
@@ -193,11 +207,18 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     pyc <- if (is.na(rs) || is.null(s$profile_year_counts)) NULL else
       tibble::as_tibble(s$profile_year_counts[s$profile_year_counts$run_id == rs, c("year", "citations")]) |>
       dplyr::mutate(author_id = aid)
+    # Scholar's histogram starts around 2009 whatever the career, so the years before it are missing
+    # from any cumulative sum; the shortfall against the profile total is carried as an offset.
+    if (!is.null(pyc) && nrow(pyc) && !is.null(ps) && nrow(ps) && !is.na(ps$total_citations[1])) {
+      pyc$pre_hist <- max(ps$total_citations[1] - sum(pyc$citations), 0)
+    } else if (!is.null(pyc)) pyc$pre_hist <- 0
     wyc <- s$work_year_counts[s$work_year_counts$source == "openalex" &
                                 s$work_year_counts$work_id %in% p$work_id, c("work_id", "year", "citations")]
     fc <- forecast_author(p, wyc, snap, unit, nsim = nsim, seed = seed)
     bt <- tryCatch(backtest_author(p, wyc, snap, nsim = min(nsim, 1000)), error = function(e) NULL)
-    list(aid = aid, rs = rs, ro = ro, snap = snap, unit = unit, papers = fc$papers, paper_fc = fc$paper_fc,
+    # fc$papers keeps only papers with a count in the author's unit; papers_all keeps OpenAlex only
+    # works too, which the OpenAlex window block needs for a Scholar unit author.
+    list(aid = aid, rs = rs, ro = ro, snap = snap, unit = unit, papers = fc$papers, papers_all = p, paper_fc = fc$paper_fc,
          author_fc = fc$author_fc, pyc = pyc, wyc = tibble::as_tibble(wyc) |> dplyr::mutate(author_id = aid),
          recon = reconstruct(s, aid, ro), ms = ms, mo = mo, first_year = first_year,
          h5_rep = if (!is.null(ps) && nrow(ps)) ps$h5_reported[1] else NA_integer_,
@@ -214,7 +235,9 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     c_unit <- if (x$unit == "scholar") p$scholar else p$openalex
     c_unit <- c_unit[!is.na(c_unit)]
     base <- if (x$unit == "scholar") x$ms else x$mo
-    cy <- cy_of(x$snap)
+    pick <- function(l, k) l[[k]] %||% NA_real_   # [[ never partial matches the way $ does
+    unit_date <- if (x$unit == "scholar") runs$snapshot_date[runs$run_id == x$rs] else runs$snapshot_date[runs$run_id == x$ro]
+    cy <- cy_of(unit_date)   # "last full year" is relative to the run that supplied the counts
     py <- x$pyc
     last_full <- if (!is.null(py)) sum(py$citations[py$year == cy - 1]) else
       sum(x$wyc$citations[x$wyc$year == cy - 1])
@@ -227,33 +250,42 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     h1 <- af[af$k == 1 & af$quantity == "h", ]
     c1 <- af[af$k == 1 & af$quantity == "citations_added", ]
     top10_sorted <- sort(c_unit, decreasing = TRUE)
-    A <- base$academic_age %||% NA_real_
-    ann <- annualized_block(p, if (x$unit == "scholar") p$scholar else p$openalex, A, cy, x$wyc, py, x$unit,
-                            x$h5_rep, x$i10_5y_rep)
+    A <- pick(base, "academic_age")
+    ann <- annualized_block(x$papers_all, if (x$unit == "scholar") x$papers_all$scholar else x$papers_all$openalex, A, cy,
+                            x$wyc, x$h5_rep, x$i10_5y_rep)
+    forecast_ok <- !is.null(x$backtest) && isTRUE(x$backtest$ratio > 1 / 1.5 && x$backtest$ratio < 1.5)
+    gate <- function(v) if (forecast_ok) v else NA_real_
     dplyr::bind_cols(tibble::tibble(
-      author_id = x$aid, unit = x$unit, snapshot_date = x$snap, first_year = x$first_year,
-      academic_age = base$academic_age %||% NA, n_papers = length(c_unit), citations = sum(c_unit),
+      author_id = x$aid, unit = x$unit, snapshot_date = x$snap, unit_date = unit_date, first_year = x$first_year,
+      scholar_date = if (is.na(x$rs)) as.Date(NA) else runs$snapshot_date[runs$run_id == x$rs],
+      openalex_date = if (is.na(x$ro)) as.Date(NA) else runs$snapshot_date[runs$run_id == x$ro],
+      academic_age = A, n_papers = length(c_unit), citations = sum(c_unit),
       h = h_of(c_unit), g = g_of(c_unit), i10 = sum(c_unit >= 10),
-      m_quotient = h_of(c_unit) / (base$academic_age %||% NA), e = base$e %||% NA, hc = base$hc %||% NA,
-      hI_norm = base$hI_norm %||% NA, hI_annual = base$hI_annual %||% NA, awcr = base$awcr %||% NA,
-      awcr_pa = base$awcr_pa %||% NA, hm = base$hm %||% NA, cites_per_author = base$cites_per_author %||% NA,
-      authors_per_paper = base$authors_per_paper_median %||% NA,
-      fwci_median = x$mo$fwci_median %||% NA, fwci_mean = x$mo$fwci_mean %||% NA,
-      top10_share = x$mo$top10_share %||% NA, top1_share = x$mo$top1_share %||% NA,
-      cites_per_paper = mean(c_unit), cites_per_year = sum(c_unit) / (base$academic_age %||% NA),
+      h_openalex = pick(x$mo, "h"),
+      m_quotient = h_of(c_unit) / A, e = pick(base, "e"), hc = pick(base, "hc"),
+      hI_norm = pick(base, "hI_norm"), hI_annual = pick(base, "hI_annual"), awcr = pick(base, "awcr"),
+      awcr_pa = pick(base, "awcr_pa"), hm = pick(base, "hm"), cites_per_author = pick(base, "cites_per_author"),
+      authors_per_paper = pick(base, "authors_per_paper_median"),
+      author_count_coverage = pick(base, "author_count_coverage"),
+      fwci_median = pick(x$mo, "fwci_median"), fwci_mean = pick(x$mo, "fwci_mean"),
+      top10_share = pick(x$mo, "top10_share"), top1_share = pick(x$mo, "top1_share"),
+      cites_per_paper = mean(c_unit), cites_per_year = sum(c_unit) / A,
       cites_last_full_year = last_full, growth_yoy = if (prev_full > 0) last_full / prev_full - 1 else NA,
       papers_per_year_5y = sum(recent, na.rm = TRUE) / 5,
       gini = gini_of(c_unit), top10_paper_share = sum(utils::head(top10_sorted, 10)) / max(sum(c_unit), 1),
       share_first_or_sole = if (known) (roles[["First"]] + roles[["Sole"]]) / known else NA,
       share_last = if (known) roles[["Last"]] / known else NA,
       median_coauthors = stats::median(p$n_authors, na.rm = TRUE),
-      velocity = x$ms$velocity_per_year %||% NA,
-      proj_h_12m = h1$q50 %||% NA, proj_h_12m_lo = h1$q10 %||% NA, proj_h_12m_hi = h1$q90 %||% NA,
-      proj_cites_12m = c1$q50 %||% NA, proj_cites_12m_lo = c1$q10 %||% NA, proj_cites_12m_hi = c1$q90 %||% NA,
+      velocity = pick(x$ms, "velocity_per_year"),
+      # Forecast gate: projections are carried only when last year's backtest total lands within a
+      # factor of 1.5, so every table and plot built from compare is gated by construction.
+      proj_h_12m = gate(round(h1$q50 %||% NA_real_)), proj_h_12m_lo = gate(round(h1$q10 %||% NA_real_)),
+      proj_h_12m_hi = gate(round(h1$q90 %||% NA_real_)),
+      proj_cites_12m = gate(c1$q50 %||% NA_real_), proj_cites_12m_lo = gate(c1$q10 %||% NA_real_),
+      proj_cites_12m_hi = gate(c1$q90 %||% NA_real_),
       bt_ratio = x$backtest$ratio %||% NA, bt_in80 = x$backtest$total_in_80 %||% NA,
-      bt_cov80 = x$backtest$paper_cov80 %||% NA,
-      # Forecast gate: shown only when last year's backtest total lands within a factor of 1.5.
-      forecast_ok = !is.null(x$backtest) && isTRUE(x$backtest$ratio > 1 / 1.5 && x$backtest$ratio < 1.5)
+      bt_cov80 = x$backtest$paper_cov80 %||% NA, bt_ran = !is.null(x$backtest),
+      forecast_ok = forecast_ok
     ), ann)
   }))
   compare <- dplyr::left_join(compare, meta, by = "author_id")
@@ -286,7 +318,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
       dplyr::filter(work_id %in% papers$work_id),
     wyc = dplyr::bind_rows(lapply(per, `[[`, "wyc")),
     pyc = dplyr::bind_rows(lapply(per, `[[`, "pyc")),
-    recon = dplyr::bind_rows(lapply(per, `[[`, "recon")),
+    recon = { r <- dplyr::bind_rows(lapply(per, `[[`, "recon")); if (nrow(r) == 0) NULL else r },
     shared = shared,
     backtest = dplyr::bind_rows(lapply(per, function(x) if (is.null(x$backtest)) NULL else dplyr::select(x$backtest, -by_method))),
     runs = tibble::as_tibble(runs),
