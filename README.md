@@ -54,6 +54,8 @@ The Methods card in the app documents every index and the forecast model. In sho
 
 h, g, i10, e, contemporary h, hI norm, hI annual, annual h, AWCR, AW, AWCRpA, m quotient, hm (Schreiber 2008, fractional counting), acc1, acc2, acc5, acc10, acc20, citations and papers per author, authors per paper, citations per paper and per career year, citation velocity, and from OpenAlex the median and mean FWCI and the shares of papers in the top 10% and 1% of their field. The comparison view adds the Gini coefficient of citations across papers, authorship role shares, and 12 month projections of h and citations.
 
+**Annualized indices** put authors at different career stages on the same footing. Rates per career year: papers, g, i10 (alongside the m quotient and citations per career year). Rates per paper year: the mean and median of citations per paper divided by years since publication. A fixed window, the last five complete calendar years: citations received (h5, i10 and citations per year over that window; from OpenAlex counts by year, and from Scholar's reported h5 and i10 with its year histogram), and recent output (papers published in the window, the citations they hold, their h, citations per recent paper). Scholar's reported h5 and i10 window also includes the partial current year; the citation totals use complete years in both sources. These appear in the comparison heatmap, the key indices table of every report, and as trajectories.
+
 ## Roadmap
 
 From a survey of Publish or Perish and comparable tools (October 2026), ranked by value:
@@ -94,4 +96,4 @@ reports/           R Markdown author report and its renderer
 
 ## Secrets (repository settings, never in files)
 
-`SERPAPI_KEY` for Scholar through SerpAPI. Optional: `OPENALEX_MAILTO` (polite pool) and `OPENALEX_API_KEY`.
+`SERPAPI_KEY` for Scholar through SerpAPI. Optional: `OPENALEX_MAILTO` (polite pool) and `OPENALEX_API_KEY` (free at openalex.org/settings/api). Since October 2026 OpenAlex refuses cursor paging beyond the first page without a key; without one the collector pages by number instead, which is free up to 10,000 works per author. A failed Scholar or OpenAlex fetch now fails the sync job after the data commit, so it shows up as a failed workflow email instead of quietly going stale.

@@ -11,3 +11,4 @@ site/
 .Rhistory
 .Rproj.user/
 *.tmp
+.fetch_failed

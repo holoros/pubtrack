@@ -78,16 +78,37 @@ def search_title(title: str, mailto: str = "", api_key: str = "", per_page: int 
     return js.get("results", [])
 
 
+PAGE_LIMIT = 10_000  # OpenAlex basic paging stops at 10,000 results; cursor paging has no limit
+
+
 def fetch_works(author_ids: list[str], mailto: str = "", api_key: str = "") -> list[dict]:
-    """All works for one or more OpenAlex author ids (author disambiguation can split a person)."""
+    """All works for one or more OpenAlex author ids (author disambiguation can split a person).
+
+    Since October 2026 OpenAlex returns 401 on cursor paging past the first page without an API
+    key. With a key we page by cursor (no result limit); without one we page by number, which stays
+    free up to 10,000 results, far beyond any single author's record."""
     flt = "author.id:" + "|".join(author_ids)
-    out, cursor = [], "*"
-    while cursor:
-        js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=100, cursor=cursor))
-        out.extend(js.get("results", []))
-        cursor = js.get("meta", {}).get("next_cursor")
-        if not js.get("results"):
+    out: list[dict] = []
+    if api_key:
+        cursor = "*"
+        while cursor:
+            js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=200, cursor=cursor))
+            out.extend(js.get("results", []))
+            cursor = js.get("meta", {}).get("next_cursor")
+            if not js.get("results"):
+                break
+        return out
+    page = 1
+    while True:
+        js = _get("/works", _params(mailto, api_key, filter=flt, select=SELECT, per_page=200, page=page))
+        res = js.get("results", [])
+        out.extend(res)
+        total = int((js.get("meta") or {}).get("count") or 0)
+        if not res or len(out) >= total:
             break
+        page += 1
+        if (page - 1) * 200 >= PAGE_LIMIT:
+            raise OpenAlexError(f"record exceeds {PAGE_LIMIT} works; set OPENALEX_API_KEY for cursor paging")
     return out
 
 

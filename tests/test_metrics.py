@@ -71,3 +71,10 @@ def test_hm_and_acc():
     assert m.hm_index(C, A) == pytest.approx(0.5 + 0.25 + 1 + 0.5 + 1 / 3)
     assert m.hm_index([1, 1, 1], [1, 1, 1]) == 1
     assert [m.acc(C, n) for n in (1, 2, 5, 10, 20)] == [5, 5, 3, 1, 0]
+
+
+def test_rate_per_paper_and_recent_subset():
+    assert m.rate_per_paper(C, Y) == pytest.approx([10, 4, 1, 0.4, 0.75])
+    papers = [{"year": 2019}, {"year": 2021}, {"year": 2025}, {"year": None}, {"year": 2026}]
+    assert m.window_bounds(2026) == (2021, 2025)
+    assert [p["year"] for p in m.recent_subset(papers, 2021, 2025)] == [2021, 2025]

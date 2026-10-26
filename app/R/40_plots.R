@@ -224,7 +224,13 @@ compare_metrics <- c(citations = "Citations", h = "h index", g = "g index", i10 
                      hc = "Contemporary h", hI_norm = "hI norm", hm = "hm index", awcr = "AWCR", cites_per_paper = "Citations per paper",
                      cites_last_full_year = "Citations last year", growth_yoy = "Growth year on year",
                      papers_per_year_5y = "Papers per year (5 y)", fwci_median = "Median FWCI", top10_share = "Top 10% share",
-                     proj_h_12m = "Projected h (12 mo)", share_first_or_sole = "First or sole author share")
+                     proj_h_12m = "Projected h (12 mo)", share_first_or_sole = "First or sole author share",
+                     # Annualized: rates that compare authors at different career stages
+                     papers_per_year = "Papers per career year", cites_per_year = "Citations per career year",
+                     cites_per_paper_year_median = "Citations per paper per year (median)",
+                     cites_per_year_5y = "Citations per year (last 5 y)", h5 = "h5 (last 5 y)",
+                     papers_5y = "Papers (last 5 y)", h_recent = "h of papers from last 5 y",
+                     cites_per_recent_paper = "Citations per recent paper")
 
 plot_heat <- function(b, ids, focal = NULL) {
   cm <- b$compare |> dplyr::filter(author_id %in% ids)

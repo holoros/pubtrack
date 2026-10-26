@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -121,7 +122,17 @@ def cmd_sync(a):
                 print("    note:", msg)
     if a.summary:
         _write_summary(Path(a.summary), results)
-    if a.strict and any(st["openalex_status"] == "failed" for st in results):
+    failed = [(st["author_id"], src) for st in results for src in ("scholar", "openalex")
+              if st[f"{src}_status"] == "failed"]
+    if os.environ.get("GITHUB_ACTIONS"):
+        # Annotations show on the run page; the workflow turns them into a failed job after the
+        # data commit so a broken source is noticed instead of silently going stale.
+        for aid, src in failed:
+            st = next(x for x in results if x["author_id"] == aid)
+            print(f"::error title={src} fetch failed for {aid}::{'; '.join(st['messages'])[:400]}")
+        if a.failed_flag and failed:
+            Path(a.failed_flag).write_text("\n".join(f"{aid} {src}" for aid, src in failed) + "\n")
+    if a.strict and failed:
         sys.exit(2)
 
 
@@ -253,7 +264,8 @@ def main(argv=None):
     s.add_argument("--force-openalex", action="store_true")
     s.add_argument("--dry-run", action="store_true")
     s.add_argument("--summary", help="append a markdown summary to this file (GITHUB_STEP_SUMMARY)")
-    s.add_argument("--strict", action="store_true", help="exit 2 if any OpenAlex fetch failed")
+    s.add_argument("--strict", action="store_true", help="exit 2 if any Scholar or OpenAlex fetch failed")
+    s.add_argument("--failed-flag", help="write 'author source' lines here when a fetch failed (CI)")
     s.set_defaults(fn=cmd_sync)
 
     s = sub.add_parser("status", help="recent runs and data quality flags")

@@ -120,8 +120,47 @@ metric_labels <- c(
   hm = "hm index (fractional)", cites_per_author = "Citations per author", papers_per_author = "Papers per author",
   cites_per_year = "Citations per year of career", cites_per_paper = "Citations per paper",
   acc1 = "acc1 (papers with 1 or more citations)", acc5 = "acc5", acc10 = "acc10", acc20 = "acc20",
-  authors_per_paper_mean = "Authors per paper (mean)"
+  authors_per_paper_mean = "Authors per paper (mean)",
+  # Annualized (rates per career year, per paper year, or over the last five complete years)
+  papers_per_year = "Papers per career year", g_per_year = "g per career year", i10_per_year = "i10 per career year",
+  cites_per_paper_year_mean = "Citations per paper per year (mean)",
+  cites_per_paper_year_median = "Citations per paper per year (median)",
+  cites_5y = "Citations received, last 5 years", cites_per_year_5y = "Citations per year, last 5 years",
+  h5 = "h5 (last 5 years)", i10_5y = "i10, last 5 years",
+  papers_5y = "Papers published, last 5 years", cites_recent_papers = "Citations to papers from last 5 years",
+  h_recent = "h of papers from last 5 years", cites_per_recent_paper = "Citations per recent paper"
 )
+
+# Annualized measures for one author from the bundle itself, so they exist for every author at once
+# (the collector stores the same quantities per run for the trajectory view). Window: the last five
+# complete calendar years before the snapshot. Scholar's h5 and i10 (5 y) are its reported values,
+# whose "since" window also includes the partial current year.
+annualized_block <- function(p, c_unit_by_paper, A, cy, wyc, pyc, unit, h5_rep = NA, i10_5y_rep = NA) {
+  y0 <- cy - 5; y1 <- cy - 1
+  ok <- !is.na(c_unit_by_paper)
+  cc <- c_unit_by_paper[ok]; yr <- p$year[ok]
+  age <- pmax(cy - yr + 1, 1)
+  rate <- (cc / age)[!is.na(yr)]
+  recent <- !is.na(yr) & yr >= y0 & yr <= y1
+  rc <- cc[recent]
+  if (unit == "openalex") {
+    wv <- wyc |> dplyr::filter(year >= y0, year <= y1) |> dplyr::group_by(work_id) |>
+      dplyr::summarise(n = sum(citations), .groups = "drop")
+    wv <- dplyr::coalesce(wv$n[match(p$work_id[ok], wv$work_id)], 0L)
+    c5 <- sum(wv); h5 <- h_of(wv); i10_5 <- sum(wv >= 10)
+  } else {
+    c5 <- if (!is.null(pyc) && nrow(pyc)) sum(pyc$citations[pyc$year >= y0 & pyc$year <= y1]) else NA_real_
+    h5 <- h5_rep; i10_5 <- i10_5y_rep
+  }
+  tibble::tibble(
+    papers_per_year = length(cc) / A, g_per_year = g_of(cc) / A, i10_per_year = sum(cc >= 10) / A,
+    cites_per_paper_year_mean = if (length(rate)) mean(rate) else NA_real_,
+    cites_per_paper_year_median = if (length(rate)) stats::median(rate) else NA_real_,
+    cites_5y = c5, cites_per_year_5y = c5 / 5, h5 = h5, i10_5y = i10_5,
+    papers_5y = sum(recent), cites_recent_papers = sum(rc), h_recent = h_of(rc),
+    cites_per_recent_paper = if (length(rc)) mean(rc) else NA_real_
+  )
+}
 
 build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 20261010, site_url = "") {
   s <- read_store(store_dir)
@@ -150,6 +189,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     first_year <- as.integer(format(snap, "%Y")) - A + 1
     cfg_fy <- meta$cfg_first_year[meta$author_id == aid]
     if (length(cfg_fy) && cfg_fy > 0) first_year <- cfg_fy
+    ps <- if (is.na(rs) || is.null(s$profile_snapshots)) NULL else s$profile_snapshots[s$profile_snapshots$run_id == rs, ]
     pyc <- if (is.na(rs) || is.null(s$profile_year_counts)) NULL else
       tibble::as_tibble(s$profile_year_counts[s$profile_year_counts$run_id == rs, c("year", "citations")]) |>
       dplyr::mutate(author_id = aid)
@@ -160,6 +200,8 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     list(aid = aid, rs = rs, ro = ro, snap = snap, unit = unit, papers = fc$papers, paper_fc = fc$paper_fc,
          author_fc = fc$author_fc, pyc = pyc, wyc = tibble::as_tibble(wyc) |> dplyr::mutate(author_id = aid),
          recon = reconstruct(s, aid, ro), ms = ms, mo = mo, first_year = first_year,
+         h5_rep = if (!is.null(ps) && nrow(ps)) ps$h5_reported[1] else NA_integer_,
+         i10_5y_rep = if (!is.null(ps) && nrow(ps)) ps$i10_5y_reported[1] else NA_integer_,
          backtest = if (is.null(bt)) NULL else dplyr::mutate(bt, author_id = aid))
   })
   names(per) <- meta$author_id
@@ -185,7 +227,10 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     h1 <- af[af$k == 1 & af$quantity == "h", ]
     c1 <- af[af$k == 1 & af$quantity == "citations_added", ]
     top10_sorted <- sort(c_unit, decreasing = TRUE)
-    tibble::tibble(
+    A <- base$academic_age %||% NA_real_
+    ann <- annualized_block(p, if (x$unit == "scholar") p$scholar else p$openalex, A, cy, x$wyc, py, x$unit,
+                            x$h5_rep, x$i10_5y_rep)
+    dplyr::bind_cols(tibble::tibble(
       author_id = x$aid, unit = x$unit, snapshot_date = x$snap, first_year = x$first_year,
       academic_age = base$academic_age %||% NA, n_papers = length(c_unit), citations = sum(c_unit),
       h = h_of(c_unit), g = g_of(c_unit), i10 = sum(c_unit >= 10),
@@ -209,7 +254,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
       bt_cov80 = x$backtest$paper_cov80 %||% NA,
       # Forecast gate: shown only when last year's backtest total lands within a factor of 1.5.
       forecast_ok = !is.null(x$backtest) && isTRUE(x$backtest$ratio > 1 / 1.5 && x$backtest$ratio < 1.5)
-    )
+    ), ann)
   }))
   compare <- dplyr::left_join(compare, meta, by = "author_id")
 

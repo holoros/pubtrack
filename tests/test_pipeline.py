@@ -291,3 +291,26 @@ def test_title_search_skips_non_research_hit(env):
     st = S(con, cfg, "2026-10-04")
     assert "title search fallback" not in " ".join(st["messages"])
     assert con.execute("SELECT openalex_id FROM works WHERE gs_id = 'AUTH:p7'").fetchone()[0] is None
+
+
+def test_annualized_metrics(env):
+    con, cfg, _ = env
+    st = S(con, cfg, "2026-10-04")
+    ms, mo = st["metrics_scholar"], st["metrics_openalex"]
+    # Scholar: 5 papers, first year 2009 -> academic age 18 (2009..2026)
+    assert ms["academic_age"] == 18
+    assert ms["papers_per_year"] == pytest.approx(5 / 18)
+    assert ms["i10_per_year"] == pytest.approx(ms["i10"] / 18)
+    # window 2021..2025: no Scholar paper published then; by_year 2024 + 2025 = 22
+    assert ms["papers_5y"] == 0 and ms["cites_recent_papers"] == 0 and ms["h_recent"] == 0
+    assert ms["cites_5y"] == 22 and ms["cites_per_year_5y"] == pytest.approx(22 / 5)
+    assert ms["h5"] == 2 and ms["i10_5y"] == 1  # Scholar reported values
+    # c/y for dated papers: 40/17, 25/12, 12/9, 3/12, 2/18
+    rates = sorted([40 / 17, 25 / 12, 12 / 9, 3 / 12, 2 / 18])
+    assert ms["cites_per_paper_year_mean"] == pytest.approx(sum(rates) / 5)
+    assert ms["cites_per_paper_year_median"] == pytest.approx(rates[2])
+    # OpenAlex window counts: W1 9, W2 5, W3 2, W9 0 -> cites_5y 16, h5 2, i10_5y 0
+    assert mo["cites_5y"] == 16 and mo["h5"] == 2 and mo["i10_5y"] == 0
+    assert mo["cites_per_year_5y"] == pytest.approx(16 / 5)
+    # OpenAlex recent papers (2021..2025): none of W1..W9 (2010, 2015, 2019, 2020)
+    assert mo["papers_5y"] == 0

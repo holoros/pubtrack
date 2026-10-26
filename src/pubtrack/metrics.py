@@ -104,9 +104,43 @@ def ols_slope_per_year(dates: list[str], values: list[float]) -> float | None:
     return sum((ti - mt) * (vi - mv) for ti, vi in zip(t, values)) / sxx
 
 
+def rate_per_paper(c, y) -> list[float]:
+    """Citations per year since publication for each paper (c / y)."""
+    return [ci / yi for ci, yi in zip(c, y)]
+
+
+def recent_subset(papers: list[dict], y0: int, y1: int) -> list[dict]:
+    """Papers published in the closed year window [y0, y1]."""
+    return [p for p in papers if p["year"] and y0 <= int(p["year"]) <= y1]
+
+
 # ---------------------------------------------------------------- per run computation
 
 MIN_VELOCITY_POINTS = 8
+WINDOW_YEARS = 5  # the "5 y" window is the last five complete calendar years
+
+
+def window_bounds(cur_year: int, n: int = WINDOW_YEARS) -> tuple[int, int]:
+    return cur_year - n, cur_year - 1
+
+
+def window_citations_openalex(con, run_id: int, y0: int, y1: int) -> dict[int, int]:
+    """Citations each included paper received in [y0, y1], from OpenAlex counts_by_year (merged
+    duplicates folded into their target). Papers with no counts in the window map to 0."""
+    rows = con.execute(
+        "SELECT w.work_id, w.merged_into, COALESCE(SUM(c.citations), 0) AS n "
+        "FROM works w JOIN runs r ON r.author_id = w.author_id "
+        "LEFT JOIN work_year_counts c ON c.work_id = w.work_id AND c.source = 'openalex' "
+        "AND c.year BETWEEN ? AND ? "
+        "WHERE r.run_id = ? AND w.excluded = 0 GROUP BY w.work_id", (y0, y1, run_id)).fetchall()
+    out: dict[int, int] = {}
+    for r in rows:
+        if r["merged_into"] is None:
+            out[r["work_id"]] = out.get(r["work_id"], 0) + int(r["n"])
+    for r in rows:
+        if r["merged_into"] is not None and r["merged_into"] in out:
+            out[r["merged_into"]] += int(r["n"])
+    return out
 
 
 def paper_table(con, run_id: int, source: str) -> list[dict]:
@@ -166,12 +200,39 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
     }
     for n in (1, 2, 5, 10, 20):
         out[f"acc{n}"] = acc(c, n)
+
+    # Annualized: everything divided by academic age or by paper age, so authors at different
+    # career stages compare on rates rather than accumulated totals.
+    out["papers_per_year"] = len(papers) / A
+    out["g_per_year"] = out["g"] / A
+    out["i10_per_year"] = out["i10"] / A
+    if dated:
+        rates = rate_per_paper(cy, yy)
+        out["cites_per_paper_year_mean"] = statistics.fmean(rates)
+        out["cites_per_paper_year_median"] = statistics.median(rates)
+
+    # Recent work: papers published in the last five complete years and the citations they hold.
+    y0, y1 = window_bounds(cur_year)
+    recent = recent_subset(papers, y0, y1)
+    rc = [p["citations"] for p in recent]
+    out["papers_5y"] = len(recent)
+    out["cites_recent_papers"] = sum(rc)
+    out["h_recent"] = h_index(rc)
+    if recent:
+        out["cites_per_recent_paper"] = sum(rc) / len(rc)
     known = [p["n_authors"] for p in dated if p["n_authors"]]
     if known:
         out["authors_per_paper_mean"] = statistics.fmean(known)
         out["authors_per_paper_median"] = statistics.median(known)
 
     if source == "openalex":
+        # Citations received in the window, per paper: h5, i10 (5 y), total and rate.
+        wc = window_citations_openalex(con, run_id, y0, y1)
+        wv = [wc.get(p["work_id"], 0) for p in papers]
+        out["cites_5y"] = sum(wv)
+        out["cites_per_year_5y"] = sum(wv) / WINDOW_YEARS
+        out["h5"] = h_index(wv)
+        out["i10_5y"] = i10(wv)
         imp = con.execute(
             "SELECT i.fwci, i.top1, i.top10 FROM work_impact i JOIN works w USING (work_id) "
             "WHERE i.run_id = ? AND w.excluded = 0 AND w.merged_into IS NULL", (run_id,),
@@ -188,6 +249,22 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
             out["top1_share"] = sum(t1) / len(t1)
 
     if source == "scholar":
+        # Scholar reports h5 and i10 (5 y) over "since year" = current year minus 4, so the window
+        # includes the partial current year; stored as reported. cites_5y uses the complete year
+        # histogram so it matches the OpenAlex window definition.
+        prof = con.execute("SELECT h5_reported, i10_5y_reported FROM profile_snapshots WHERE run_id = ?",
+                           (run_id,)).fetchone()
+        if prof:
+            if prof["h5_reported"] is not None:
+                out["h5"] = prof["h5_reported"]
+            if prof["i10_5y_reported"] is not None:
+                out["i10_5y"] = prof["i10_5y_reported"]
+        by_year = con.execute("SELECT year, citations FROM profile_year_counts WHERE run_id = ?",
+                              (run_id,)).fetchall()
+        if by_year:
+            c5 = sum(int(r["citations"] or 0) for r in by_year if y0 <= int(r["year"]) <= y1)
+            out["cites_5y"] = c5
+            out["cites_per_year_5y"] = c5 / WINDOW_YEARS
         hist = con.execute(
             "SELECT r.snapshot_date, p.total_citations FROM profile_snapshots p JOIN runs r USING (run_id) "
             "WHERE r.author_id = ? AND p.total_citations IS NOT NULL AND r.origin = 'sync' "

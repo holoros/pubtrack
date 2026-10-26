@@ -359,10 +359,15 @@ server <- function(input, output, session) {
   output$rep_tbl <- renderTable({
     x <- B$compare[B$compare$author_id == ra(), ]
     tibble(Metric = c("Papers", "Citations", "h index", "g index", "i10 index", "m quotient", "Contemporary h", "hI norm",
-                      "Median FWCI", "Share in top 10%", "Citations last full year", "Projected h in 12 months (80% interval)",
+                      "Papers per career year", "Citations per career year", "Citations per year, last 5 complete years",
+             "h5", "Citations per paper per year (median)", "Papers published, last 5 complete years",
+             "h of papers from last 5 years", "Median FWCI", "Share in top 10%", "Citations last full year", "Projected h in 12 months (80% interval)",
                       "Projected new citations in 12 months (80% interval)"),
            Value = c(fmt_n(x$n_papers), fmt_n(x$citations), x$h, x$g, x$i10, formatC(x$m_quotient, format = "f", digits = 2),
-                     fmt_n(x$hc), fmt_n(x$hI_norm), formatC(x$fwci_median, format = "f", digits = 2), fmt_pct(x$top10_share),
+                     fmt_n(x$hc), fmt_n(x$hI_norm),
+            formatC(x$papers_per_year, format = "f", digits = 1), fmt_n(x$cites_per_year), fmt_n(x$cites_per_year_5y),
+            fmt_n(x$h5), formatC(x$cites_per_paper_year_median, format = "f", digits = 2), fmt_n(x$papers_5y),
+            fmt_n(x$h_recent), formatC(x$fwci_median, format = "f", digits = 2), fmt_pct(x$top10_share),
                      fmt_n(x$cites_last_full_year), paste0(x$proj_h_12m, " (", x$proj_h_12m_lo, " to ", x$proj_h_12m_hi, ")"),
                      paste0(fmt_n(x$proj_cites_12m), " (", fmt_n(x$proj_cites_12m_lo), " to ", fmt_n(x$proj_cites_12m_hi), ")")))
   }, striped = FALSE, align = "lc", width = "100%")
