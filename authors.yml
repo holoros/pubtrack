@@ -11,7 +11,7 @@
 # group            free label; "self" sorts first
 #
 # A change to this file triggers a fetch on push (used on 26 October 2026 to backfill OpenAlex after the paging fix,
-# and again the same day to apply the dataset and version rules of 0.2.3).
+# and again the same day to apply the dataset and version rules of 0.2.3; a push that edits this file forces the OpenAlex pass).
 
 settings:
   scholar_via: serpapi          # serpapi | scholarly (local machine only) | none
