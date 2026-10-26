@@ -73,6 +73,8 @@ jobs:
             CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" 2>/dev/null || git show --name-only --format= HEAD)
             echo "changed: $CHANGED"
             if ! echo "$CHANGED" | grep -q "authors.yml"; then echo "push without authors.yml changes: no fetch"; exit 0; fi
+            # An authors.yml edit asks for a fresh OpenAlex pass for everyone (free); Scholar keeps its cadence.
+            FORCE_OPENALEX=true
           fi
           ARGS=()
           if [ -n "$AUTHORS" ]; then ARGS+=(--author "$AUTHORS"); fi
