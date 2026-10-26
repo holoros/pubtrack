@@ -103,4 +103,4 @@ wc(plot_career(b, ids, "citations", a))
 
 ## Methods
 
-`r methods_html()`
+`r methods_html(b$nsim)`

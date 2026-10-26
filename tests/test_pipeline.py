@@ -41,7 +41,7 @@ def oa_work(wid, title, year, cites, doi, n_auth, pos, fwci, top10, counts):
     auths = [{"author": {"id": f"https://openalex.org/A{i}", "display_name": f"Person {i}"}} for i in range(n_auth)]
     auths[pos - 1] = {"author": {"id": "https://openalex.org/A999", "display_name": "Aaron R. Weiskittel"}}
     return {"id": f"https://openalex.org/{wid}", "doi": f"https://doi.org/{doi}", "display_name": title,
-            "publication_year": year, "authorships": auths, "cited_by_count": cites,
+            "publication_year": year, "type": "article", "authorships": auths, "cited_by_count": cites,
             "counts_by_year": [{"year": y, "cited_by_count": n} for y, n in counts],
             "fwci": fwci, "citation_normalized_percentile": {"value": 0.9, "is_in_top_1_percent": False,
                                                               "is_in_top_10_percent": top10},
@@ -317,9 +317,9 @@ def test_annualized_metrics(env):
     assert ms["academic_age"] == 18
     assert ms["papers_per_year"] == pytest.approx(5 / 18)
     assert ms["i10_per_year"] == pytest.approx(ms["i10"] / 18)
-    # window 2021..2025: no Scholar paper published then; by_year 2024 + 2025 = 22
-    assert ms["papers_5y"] == 0 and ms["cites_recent_papers"] == 0 and ms["h_recent"] == 0
-    assert ms["cites_5y"] == 22 and ms["cites_per_year_5y"] == pytest.approx(22 / 5)
+    # the window and recent blocks are OpenAlex only; Scholar keeps its histogram under its own name
+    assert "papers_5y" not in ms and "cites_5y" not in ms
+    assert ms["cites_5y_scholar"] == 22 and ms["cites_per_year_5y_scholar"] == pytest.approx(22 / 5)
     # Scholar's reported five year values keep their own names: their window is six calendar years
     assert ms["h5_reported"] == 2 and ms["i10_5y_reported"] == 1 and ms["cites_since_reported"] == 30
     assert "h5" not in ms and "i10_5y" not in ms
@@ -331,7 +331,8 @@ def test_annualized_metrics(env):
     assert mo["cites_5y"] == 16 and mo["h5"] == 2 and mo["i10_5y"] == 0
     assert mo["cites_per_year_5y"] == pytest.approx(16 / 5)
     # OpenAlex recent papers (2021..2025): none of W1..W9 (2010, 2015, 2019, 2020)
-    assert mo["papers_5y"] == 0
+    assert mo["papers_5y"] == 0 and mo["cites_recent_papers"] == 0 and mo["h_recent"] == 0
+    assert mo["n_with_percentile"] == 4 and mo["top10_share"] == pytest.approx(1 / 4)
     # per author indices use known author counts only: Scholar p4 and p5 have none
     assert ms["n_no_authors"] == 2 and ms["author_count_coverage"] == pytest.approx(3 / 5)
     # matched: p1 40/3, p2 25/4, p3 12/2 -> papers_per_author 1/3 + 1/4 + 1/2
@@ -376,3 +377,75 @@ def test_standin_duplicate_counts_in_window_and_fwci(env):
     con.commit()
     mo = S(con, cfg, "2026-10-11")["metrics_openalex"]
     assert mo["cites_5y"] == 16 and mo["fwci_median"] == pytest.approx(0.9)
+
+
+def test_datasets_skipped_and_versions_collapsed(env, monkeypatch):
+    con, cfg, _ = env
+    ds = oa_work("W50", "PERSEUS intercomparison data", 2026, 0, "10.5281/z1", 3, 1, None, False, [])
+    ds["type"] = "dataset"
+    v1 = oa_work("W60", "A preprint and its article", 2024, 3, "10.1/pre", 2, 1, 0.5, False, [(2025, 3)])
+    v1["type"] = "preprint"
+    v2 = oa_work("W61", "A preprint and its article", 2024, 9, "10.1/art", 2, 1, 1.2, False, [(2025, 9)])
+    v2["type"] = "article"
+    monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: OA_WORKS + [ds, v1, v2])
+    st = S(con, cfg, "2026-10-04")
+    assert con.execute("SELECT COUNT(*) FROM works WHERE openalex_id = 'W50'").fetchone()[0] == 0
+    assert st["matching"]["oa_duplicate"] == 1
+    t = con.execute("SELECT type, merged_into FROM works WHERE openalex_id = 'W60'").fetchone()
+    assert t["type"] == "preprint" and t["merged_into"] == con.execute(
+        "SELECT work_id FROM works WHERE openalex_id = 'W61'").fetchone()[0]
+    mo = st["metrics_openalex"]
+    assert mo["n_papers"] == 5 and mo["papers_5y"] == 1 and mo["cites_recent_papers"] == 12  # 9 + 3 folded
+
+
+def test_type_survives_csv_round_trip_and_skipped_type_not_flagged(env, monkeypatch, tmp_path):
+    con, cfg, _ = env
+    S(con, cfg, "2026-10-04")
+    store.save(con, tmp_path)
+    assert "type" in (tmp_path / "works.csv").read_text().splitlines()[0]
+    con2 = store.load(tmp_path)
+    assert con2.execute("SELECT type FROM works WHERE openalex_id = 'W1'").fetchone()[0] == "article"
+    # OpenAlex reclassifies W9 as a dataset: it stops getting snapshots but is not "left_record"
+    w9 = [dict(w) for w in OA_WORKS if w["id"].endswith("W9")][0]
+    w9["type"] = "dataset"
+    monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: [w for w in OA_WORKS if not w["id"].endswith("W9")] + [w9])
+    st = S(con, cfg, "2026-10-11")
+    assert st["metrics_openalex"]["n_papers"] == 3
+    assert con.execute("SELECT type FROM works WHERE openalex_id = 'W9'").fetchone()[0] == "dataset"
+    assert con.execute("SELECT COUNT(*) FROM flags WHERE run_id = ? AND kind = 'left_record'", (st["run_id"],)).fetchone()[0] == 0
+
+
+def test_title_search_miss_is_retried_when_young(env):
+    con, cfg, state = env
+    state["gs"].append({"gs_id": "AUTH:p8", "title": "A brand new paper that OpenAlex has not indexed yet", "year": 2026,
+                        "venue": "CJFR", "citations": 1})
+    S(con, cfg, "2026-01-10")
+    n0 = con.execute("SELECT COUNT(*) FROM title_lookups WHERE gs_id = 'AUTH:p8'").fetchone()[0]
+    assert n0 == 1
+    # two months later: not retried
+    S(con, cfg, "2026-03-10")
+    assert con.execute("SELECT searched FROM title_lookups WHERE gs_id = 'AUTH:p8'").fetchone()[0] == "2026-01-10"
+    # four months later OpenAlex has it: retried and linked
+    state["search"] = [oa_work("W77", "A brand new paper that OpenAlex has not indexed yet", 2026, 2, "10.1/n", 2, 1, None, False, [])]
+    S(con, cfg, "2026-05-10")
+    assert con.execute("SELECT openalex_id FROM works WHERE gs_id = 'AUTH:p8'").fetchone()[0] == "W77"
+
+
+def test_fuzzy_match_and_margin(env, monkeypatch):
+    con, cfg, state = env
+    state["gs"].append({"gs_id": "AUTH:f1", "title": "Modelling crown recession of balsam fir in Maine", "year": 2014,
+                        "venue": "FEM", "citations": 8})
+    state["gs"].append({"gs_id": "AUTH:f2", "title": "Growth responses of red spruce to thinning", "year": 2016,
+                        "venue": "CJFR", "citations": 6})
+    extra = [
+        # one spelling away: fuzzy, no runner up
+        oa_work("W80", "Modeling crown recession of balsam fir in Maine", 2014, 5, "10.1/f1", 2, 1, 1.0, False, []),
+        # two near identical candidates for f2 that are not copies of each other: blocked by the margin
+        oa_work("W81", "Growth responses of red spruce to thinning in Maine", 2016, 4, "10.1/f2a", 2, 1, 1.0, False, []),
+        oa_work("W82", "Growth responses of red spruce to thinning in Quebec", 2016, 4, "10.1/f2b", 2, 1, 1.0, False, []),
+    ]
+    monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: OA_WORKS + extra)
+    st = S(con, cfg, "2026-10-04")
+    assert st["matching"]["title_fuzzy"] == 1
+    assert con.execute("SELECT openalex_id, match_method FROM works WHERE gs_id = 'AUTH:f1'").fetchone()[:] == ("W80", "title_fuzzy")
+    assert con.execute("SELECT openalex_id FROM works WHERE gs_id = 'AUTH:f2'").fetchone()[0] is None

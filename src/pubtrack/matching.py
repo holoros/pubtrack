@@ -64,10 +64,10 @@ def merge_pair(con, gs_work_id: int, oa_work_id: int, method: str, score: float 
     con.execute("UPDATE works SET openalex_id = NULL WHERE work_id = ?", (oa_work_id,))
     con.execute(
         "UPDATE works SET openalex_id = ?, doi = COALESCE(doi, ?), authors = ?, n_authors = ?, "
-        "author_position = ?, is_last_author = ?, year = COALESCE(year, ?), match_method = ?, match_score = ? "
-        "WHERE work_id = ?",
+        "author_position = ?, is_last_author = ?, year = COALESCE(year, ?), type = ?, match_method = ?, "
+        "match_score = ? WHERE work_id = ?",
         (oa["openalex_id"], oa["doi"], oa["authors"], oa["n_authors"], oa["author_position"],
-         oa["is_last_author"], oa["year"], method, score, gs_work_id),
+         oa["is_last_author"], oa["year"], oa["type"], method, score, gs_work_id),
     )
     for table in ("work_snapshots", "work_year_counts", "work_impact"):
         # A Scholar row could already hold OpenAlex data from an earlier link; the OA row's is newer.
@@ -113,6 +113,7 @@ def reconcile(con, author_id: str) -> dict:
         used_g.add(g)
         used_o.add(o)
         counts[method] += 1
+    counts["oa_duplicate"] = collapse_openalex_duplicates(con, author_id)
     con.commit()
     counts["unmatched_scholar"] = con.execute(
         "SELECT COUNT(*) FROM works WHERE author_id = ? AND gs_id IS NOT NULL AND openalex_id IS NULL "
@@ -123,7 +124,36 @@ def reconcile(con, author_id: str) -> dict:
     return counts
 
 
+def collapse_openalex_duplicates(con, author_id: str) -> int:
+    """OpenAlex only rows with one normalized title within a year of each other are versions of one
+    work (preprint and article, or repeated deposits). All but the most cited fold into it through
+    merged_into, so paper counts and per paper averages count the work once. Rows a user excluded or
+    already merged are left alone."""
+    rows = con.execute(
+        "SELECT w.work_id, w.title_norm, w.year, COALESCE(("
+        "  SELECT s.citations FROM work_snapshots s WHERE s.work_id = w.work_id AND s.source = 'openalex' "
+        "  ORDER BY s.run_id DESC LIMIT 1), 0) AS cites FROM works w "
+        "WHERE w.author_id = ? AND w.gs_id IS NULL AND w.openalex_id IS NOT NULL AND w.excluded = 0 "
+        "AND w.merged_into IS NULL ORDER BY w.title_norm, cites DESC, w.work_id", (author_id,)).fetchall()
+    groups: dict[str, list] = {}
+    for r in rows:
+        groups.setdefault(r["title_norm"], []).append(r)
+    n = 0
+    for same in groups.values():
+        if len(same) < 2:
+            continue
+        target = same[0]  # most cited
+        for r in same[1:]:
+            if _year_ok(target["year"], r["year"]):
+                con.execute("UPDATE works SET merged_into = ?, match_method = 'oa_duplicate' WHERE work_id = ?",
+                            (target["work_id"], r["work_id"]))
+                n += 1
+    return n
+
+
 SEARCH_MIN = 95.0     # title search results must be near exact, since no author id vouches for them
+RETRY_AFTER_DAYS = 90  # a miss is searched again after this long while the paper is still young
+RETRY_YOUNG_YEARS = 3
 
 
 def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 120) -> dict:
@@ -135,8 +165,11 @@ def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, t
         "SELECT w.work_id, w.gs_id, w.title, w.title_norm, w.year FROM works w "
         "LEFT JOIN title_lookups t ON t.author_id = w.author_id AND t.gs_id = w.gs_id "
         "WHERE w.author_id = ? AND w.gs_id IS NOT NULL AND w.openalex_id IS NULL AND w.excluded = 0 "
-        "AND w.merged_into IS NULL AND t.gs_id IS NULL AND length(w.title_norm) >= 20 "
-        "ORDER BY w.work_id LIMIT ?", (author.id, cap)).fetchall()
+        "AND w.merged_into IS NULL AND length(w.title_norm) >= 20 AND (t.gs_id IS NULL OR "
+        # a miss on a young paper is retried: new work often reaches Scholar before OpenAlex
+        "  (t.openalex_id IS NULL AND t.searched <= date(?, ?) AND (w.year IS NULL OR w.year >= ?))) "
+        "ORDER BY t.searched IS NOT NULL, w.work_id LIMIT ?",
+        (author.id, today, f"-{RETRY_AFTER_DAYS} days", int(today[:4]) - RETRY_YOUNG_YEARS, cap)).fetchall()
     found, errors = 0, 0
     for g in todo:
         hit, score = None, None

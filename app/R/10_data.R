@@ -136,6 +136,8 @@ metric_labels <- c(
   papers_5y = "Papers published, last 5 complete years", cites_recent_papers = "Citations to papers from last 5 complete years",
   h_recent = "h of papers from last 5 complete years", cites_per_recent_paper = "Citations per recent paper",
   h5_reported = "h5 as reported by Scholar (6 year window)", i10_5y_reported = "i10 (5 y) as reported by Scholar",
+  cites_5y_scholar = "Scholar citations received, last 5 complete years", cites_per_year_5y_scholar = "Scholar citations per year, last 5 complete years",
+  n_with_percentile = "Papers with an OpenAlex field percentile", n_with_fwci = "Papers with an FWCI",
   cites_since_reported = "Citations since year as reported by Scholar", author_count_coverage = "Share of papers with known author count"
 )
 
@@ -269,6 +271,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
       author_count_coverage = pick(base, "author_count_coverage"),
       fwci_median = pick(x$mo, "fwci_median"), fwci_mean = pick(x$mo, "fwci_mean"),
       top10_share = pick(x$mo, "top10_share"), top1_share = pick(x$mo, "top1_share"),
+      n_with_percentile = sum(!is.na(x$papers_all$top10)),
       cites_per_paper = mean(c_unit), cites_per_year = sum(c_unit) / A,
       cites_last_full_year = last_full, growth_yoy = if (prev_full > 0) last_full / prev_full - 1 else NA,
       papers_per_year_5y = sum(recent, na.rm = TRUE) / 5,
@@ -295,9 +298,13 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
   shared <- dplyr::inner_join(oa, oa, by = "openalex_id", suffix = c("_a", "_b"), relationship = "many-to-many") |>
     dplyr::filter(author_id_a != author_id_b) |> dplyr::count(author_id_a, author_id_b, name = "n_shared")
 
+  # Flags from the latest successful run of each source (a later OpenAlex only run must not hide
+  # the Scholar run's drops), plus the latest run of all for fetch level flags.
   flags_latest <- if (is.null(s$flags) || nrow(s$flags) == 0) NULL else {
-    last_run <- runs |> dplyr::filter(origin == "sync") |> dplyr::group_by(author_id) |>
-      dplyr::summarise(run_id = max(run_id), .groups = "drop")
+    last_run <- dplyr::bind_rows(
+      runs |> dplyr::filter(origin == "sync") |> dplyr::group_by(author_id) |> dplyr::summarise(run_id = max(run_id), .groups = "drop"),
+      dplyr::bind_rows(lapply(per, function(x) tibble::tibble(author_id = x$aid, run_id = c(x$rs, x$ro))))) |>
+      dplyr::filter(!is.na(run_id)) |> dplyr::distinct()
     s$flags |> dplyr::inner_join(last_run, by = "run_id") |>
       dplyr::left_join(s$works[, c("work_id", "gs_id", "openalex_id", "title")], by = "work_id")
   }

@@ -19,3 +19,8 @@ authors:
     first_year: 2018
     scholar_id: DEMO-EARLY
     group: demo
+  - id: demo-oaonly
+    name: Dana Openalex
+    openalex_id: A4
+    first_year: 2014
+    group: demo

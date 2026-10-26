@@ -176,7 +176,9 @@ plot_portfolio <- function(b, aid) {
     ggplot2::scale_x_continuous(breaks = .int_breaks) +
     ggplot2::labs(x = "Publication year", y = "Citations (log scale)",
                   caption = paste0(.unit_lab(unit), " citations. Dotted line: h = ", h,
-                                   ". Point area: projected citations in the next 12 months.")) +
+                                   ". Point area: projected citations in the next 12 months",
+                                   if (isTRUE(b$compare$forecast_ok[b$compare$author_id == aid])) "." else
+                                     " (forecast check not passed: sizes are indicative only).")) +
     theme_pubtrack()
 }
 
@@ -219,8 +221,15 @@ plot_lorenz <- function(b, ids, focal = NULL) {
     ggplot2::scale_x_continuous(labels = scales::label_percent()) +
     ggplot2::scale_y_continuous(labels = scales::label_percent(), limits = c(0, 1)) +
     ggplot2::labs(x = "Share of papers (most cited first)", y = "Share of citations",
-                  caption = "Concentration of citations. A curve near the top left means impact rests on a few papers.") +
+                  caption = paste0("Concentration of citations in each author's own unit. A curve near the top left means impact rests on a few papers.",
+                                   .mixed_note(b, ids))) +
     theme_pubtrack()
+}
+
+# Appended to captions of panels that show each author in their own unit.
+.mixed_note <- function(b, ids) {
+  u <- unique(b$compare$unit[b$compare$author_id %in% ids])
+  if (length(u) > 1) " Units are mixed across authors (GS = Google Scholar, OA = OpenAlex); Scholar counts run higher for the same record." else ""
 }
 
 # Standardized profile: each metric as a percentile within the tracked set.
@@ -281,7 +290,9 @@ plot_projected_h <- function(b, ids, focal = NULL) {
     ggplot2::geom_point(ggplot2::aes(x = h), shape = 21, fill = "white", size = 3) +
     ggplot2::geom_point(ggplot2::aes(x = proj_h_12m), size = 3.5) +
     ggplot2::scale_colour_manual(values = pal, guide = "none") +
-    ggplot2::labs(x = "h index", y = NULL, caption = "Open circle: current h. Solid: median projection in 12 months. Bar: 80% interval. Authors whose forecast check failed are not shown.") +
+    ggplot2::labs(x = "h index (each author's own unit)", y = NULL,
+                  caption = paste0("Open circle: current h. Solid: median projection in 12 months. Bar: 80% interval. Authors whose forecast check failed are not shown.",
+                                   .mixed_note(b, ids))) +
     theme_pubtrack() + ggplot2::theme(panel.grid.major.x = ggplot2::element_line(colour = "#e6ebe8"),
                                       panel.grid.major.y = ggplot2::element_blank())
 }
@@ -297,7 +308,9 @@ plot_output <- function(b, ids, focal = NULL, from = NULL) {
     ggplot2::scale_fill_manual(values = pal, labels = lab) +
     ggplot2::scale_x_continuous(breaks = .int_breaks) +
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.06))) +
-    ggplot2::labs(x = NULL, y = "Papers per year", caption = "Publication year as recorded on each profile.") +
+    ggplot2::labs(x = NULL, y = "Papers per year",
+                  caption = paste0("Publication year as recorded on each profile, in each author's own unit (Scholar lists what the profile lists; OpenAlex excludes datasets and folds versions).",
+                                   .mixed_note(b, ids))) +
     theme_pubtrack()
 }
 
@@ -357,7 +370,8 @@ plot_paper_annual <- function(b, aid, wid) {
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0, 0.06))) +
     ggplot2::labs(x = NULL, y = "Citations yr\u207b\u00b9",
                   caption = paste0("Bars: OpenAlex citations per year", if (k != 1) paste0(" scaled by ", formatC(k, format = "f", digits = 2), " to Scholar units") else "",
-                                   ". Pale bar: year to date.\nPoints: successive 12 month windows from now with 80% (dark) and 95% (light) intervals; method: ", p$fc_method, ".")) +
+                                   ". Pale bar: year to date.\nPoints: successive 12 month windows from now with 80% (dark) and 95% (light) intervals; method: ", p$fc_method,
+                                   if (isTRUE(b$compare$forecast_ok[b$compare$author_id == aid])) "." else " (forecast check not passed: indicative only).")) +
     theme_pubtrack()
 }
 

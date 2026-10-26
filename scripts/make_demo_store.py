@@ -22,25 +22,28 @@ out = Path(sys.argv[1] if len(sys.argv) > 1 else "app/tests/fixtures/demo_store"
 shutil.rmtree(out, ignore_errors=True)
 rng = random.Random(42)
 
-SPECS = [  # id, name, n papers, first year, lognormal mu, weeks of history
-    ("demo-senior", "Avery Senior", 60, 2002, 3.3, 20),
-    ("demo-mid", "Blake Middle", 35, 2010, 3.0, 12),
-    ("demo-early", "Casey Early", 14, 2018, 2.5, 6),
+SPECS = [  # id, name, n papers, first year, lognormal mu, weeks of history, has a Scholar profile
+    ("demo-senior", "Avery Senior", 60, 2002, 3.3, 20, True),
+    ("demo-mid", "Blake Middle", 35, 2010, 3.0, 12, True),
+    ("demo-early", "Casey Early", 14, 2018, 2.5, 6, True),
+    ("demo-oaonly", "Dana Openalex", 22, 2014, 2.8, 8, False),  # no Scholar profile: OpenAlex unit
 ]
 SUBJECTS = ["crown ratio", "stand density", "site index", "mortality", "diameter growth", "height growth",
             "biomass", "lidar structure", "regeneration", "self thinning", "carbon stocks", "ingrowth"]
 
 con = connect(":memory:")
 init_schema(con)
+openalex.search_title = lambda *a, **k: []   # no network: unmatched demo papers stay unmatched
+openalex.fetch_by_ids = lambda *a, **k: []
 settings = Settings(scholar_via="scholarly")
-authors = [Author(id=i, name=n, surname=n.split()[-1], scholar_id=i.upper(), openalex_id=f"A{k}",
-                  first_year=fy, scholar_cadence="weekly", group="demo")
-           for k, (i, n, _, fy, _, _) in enumerate(SPECS, start=1)]
+authors = [Author(id=i, name=n, surname=n.split()[-1], scholar_id=i.upper() if gs else "", openalex_id=f"A{k}",
+                  first_year=fy, scholar_cadence="weekly" if gs else "never", group="demo")
+           for k, (i, n, _, fy, _, _, gs) in enumerate(SPECS, start=1)]
 cfg = Config(settings=settings, authors=authors)
 
 shared = {"title": "A shared paper on crown ratio and stand density across the Acadian region", "year": 2019}
 d_end = date(2026, 10, 4)
-for (aid, name, n, fy, mu, weeks), au in zip(SPECS, authors):
+for (aid, name, n, fy, mu, weeks, has_gs), au in zip(SPECS, authors):
     papers = []
     for i in range(n):
         yr = rng.randint(fy, 2026)
@@ -51,7 +54,7 @@ for (aid, name, n, fy, mu, weeks), au in zip(SPECS, authors):
     papers.append({"i": 99, "year": shared["year"], "c0": 40, "rate": 0.5, "title": shared["title"]})
     for week in range(weeks):
         snap = d_end - timedelta(weeks=weeks - 1 - week)
-        gs_works = [{"gs_id": f"{au.scholar_id}:p{p['i']}", "title": p["title"], "year": p["year"],
+        gs_works = [{"gs_id": f"{aid.upper()}:p{p['i']}", "title": p["title"], "year": p["year"],
                      "venue": "Demo Journal", "citations": int(p["c0"] + p["rate"] * week)} for p in papers]
         total = sum(w["citations"] for w in gs_works)
         h = h_index([w["citations"] for w in gs_works])
@@ -81,13 +84,22 @@ for (aid, name, n, fy, mu, weeks), au in zip(SPECS, authors):
                        "citation_normalized_percentile": {"value": min(0.999, f / 4), "is_in_top_1_percent": f > 3.5,
                                                           "is_in_top_10_percent": f > 2.2},
                        "primary_location": {"source": {"display_name": "Demo Journal"}}})
-        openalex.fetch_works = lambda *a, _oa=oa, **k: _oa
-        st = syncmod.sync(con, cfg, au, snapshot_date=snap.isoformat())
-    print(f"{aid}: {weeks} runs, h {st['metrics_scholar']['h']:.0f}")
+        # the mid career author's OpenAlex fetch fails once, so the store holds a one source run
+        fail_oa = aid == "demo-mid" and week == weeks - 2
+
+        def fetch(*a, _oa=oa, _fail=fail_oa, **k):
+            if _fail:
+                raise openalex.OpenAlexError("OpenAlex HTTP 503 on /works (demo outage)")
+            return _oa
+        openalex.fetch_works = fetch
+        sources = ("scholar", "openalex") if has_gs else ("openalex",)
+        st = syncmod.sync(con, cfg, au, sources=sources, snapshot_date=snap.isoformat())
+    m = st.get("metrics_scholar") or st.get("metrics_openalex")
+    print(f"{aid}: {weeks} runs, h {m['h']:.0f}")
 
 store.save(con, out)
 (out / "authors.yml").write_text(
     "settings:\n  scholar_via: none\nauthors:\n" + "".join(
         f"  - id: {a.id}\n    name: {a.name}\n    openalex_id: {a.openalex_id}\n    first_year: {a.first_year}\n"
-        f"    scholar_id: {a.scholar_id}\n    group: demo\n" for a in authors))
+        + (f"    scholar_id: {a.scholar_id}\n" if a.scholar_id else "") + f"    group: demo\n" for a in authors))
 print(f"demo store: {out}")

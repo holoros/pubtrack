@@ -17,7 +17,9 @@ SELECT = ",".join([
 
 
 # Not scholarly output in the citation sense; kept out so they never inflate paper counts.
-SKIP_TYPES = {"erratum", "retraction", "paratext", "peer-review", "grant", "supplementary-materials"}
+# Datasets cover Zenodo, Figshare and Dataverse deposits, which OpenAlex lists once per version.
+SKIP_TYPES = {"erratum", "retraction", "paratext", "peer-review", "grant", "supplementary-materials",
+              "dataset", "libguides", "standard"}
 
 
 class OpenAlexError(RuntimeError):
@@ -181,7 +183,11 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
         title = (w.get("display_name") or "").strip()
         if not oid or not title:
             continue
-        if (w.get("type") or "") in SKIP_TYPES:
+        wtype = (w.get("type") or "") or None
+        if wtype in SKIP_TYPES:
+            # A row stored before the type was skipped keeps its type so it is not reported as
+            # having left the record; it simply gets no further snapshots.
+            con.execute("UPDATE works SET type = ? WHERE author_id = ? AND openalex_id = ?", (wtype, author, oid))
             continue
         doi = (w.get("doi") or "").replace("https://doi.org/", "").lower() or None
         authors, n_auth, pos, is_last = _author_fields(w, ids, surname)
@@ -192,16 +198,17 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
             work_id = row["work_id"]
             con.execute(
                 "UPDATE works SET doi = COALESCE(doi, ?), authors = ?, n_authors = ?, author_position = ?, "
-                "is_last_author = ?, year = COALESCE(year, ?), venue = COALESCE(venue, ?), last_seen = ? WHERE work_id = ?",
-                (doi, authors, n_auth, pos, is_last, w.get("publication_year"), venue, today, work_id),
+                "is_last_author = ?, year = COALESCE(year, ?), venue = COALESCE(venue, ?), type = ?, last_seen = ? "
+                "WHERE work_id = ?",
+                (doi, authors, n_auth, pos, is_last, w.get("publication_year"), venue, wtype, today, work_id),
             )
         else:
             cur = con.execute(
-                "INSERT INTO works(author_id, openalex_id, doi, title, title_norm, year, venue, authors, n_authors, "
-                "author_position, is_last_author, match_method, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
-                (author, oid, doi, title, norm_title(title), w.get("publication_year"), venue, authors, n_auth,
-                 pos, is_last, today, today),
+                "INSERT INTO works(author_id, openalex_id, doi, title, title_norm, year, venue, type, authors, "
+                "n_authors, author_position, is_last_author, match_method, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
+                (author, oid, doi, title, norm_title(title), w.get("publication_year"), venue, wtype, authors,
+                 n_auth, pos, is_last, today, today),
             )
             work_id = cur.lastrowid
         con.execute(

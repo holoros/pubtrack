@@ -234,14 +234,16 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
         out["cites_per_paper_year_median"] = statistics.median(rates)
 
     # Recent work: papers published in the last five complete years and the citations they hold.
+    # OpenAlex only, like the window block, so the names mean one thing across authors.
     y0, y1 = window_bounds(cur_year)
-    recent = recent_subset(papers, y0, y1)
-    rc = [p["citations"] for p in recent]
-    out["papers_5y"] = len(recent)
-    out["cites_recent_papers"] = sum(rc)
-    out["h_recent"] = h_index(rc)
-    if recent:
-        out["cites_per_recent_paper"] = sum(rc) / len(rc)
+    if source == "openalex":
+        recent = recent_subset(papers, y0, y1)
+        rc = [p["citations"] for p in recent]
+        out["papers_5y"] = len(recent)
+        out["cites_recent_papers"] = sum(rc)
+        out["h_recent"] = h_index(rc)
+        if recent:
+            out["cites_per_recent_paper"] = sum(rc) / len(rc)
     if ak:
         out["authors_per_paper_mean"] = statistics.fmean(ak)
         out["authors_per_paper_median"] = statistics.median(ak)
@@ -259,11 +261,13 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
             "SELECT i.work_id, i.fwci, i.top1, i.top10 FROM work_impact i WHERE i.run_id = ?", (run_id,),
         ).fetchall() if r["work_id"] in ids_in]
         f = [r["fwci"] for r in imp if r["fwci"] is not None]
+        out["n_with_fwci"] = len(f)
         if f:
             out["fwci_median"] = statistics.median(f)
             out["fwci_mean"] = statistics.fmean(f)
         t10 = [r["top10"] for r in imp if r["top10"] is not None]
         t1 = [r["top1"] for r in imp if r["top1"] is not None]
+        out["n_with_percentile"] = len(t10)  # the denominator of the shares; recent papers have none yet
         if t10:
             out["top10_share"] = sum(t10) / len(t10)
         if t1:
@@ -285,10 +289,10 @@ def compute(con, run_id: int, source: str, first_year: int = 0) -> dict[str, flo
                 out["cites_since_reported"] = prof["citations_5y"]
         by_year = con.execute("SELECT year, citations FROM profile_year_counts WHERE run_id = ?",
                               (run_id,)).fetchall()
-        if by_year:
+        if by_year:  # the Scholar histogram over the same window, under its own name
             c5 = sum(int(r["citations"] or 0) for r in by_year if y0 <= int(r["year"]) <= y1)
-            out["cites_5y"] = c5
-            out["cites_per_year_5y"] = c5 / WINDOW_YEARS
+            out["cites_5y_scholar"] = c5
+            out["cites_per_year_5y_scholar"] = c5 / WINDOW_YEARS
         hist = con.execute(
             "SELECT r.snapshot_date, p.total_citations FROM profile_snapshots p JOIN runs r USING (run_id) "
             "WHERE r.author_id = ? AND p.total_citations IS NOT NULL AND r.origin = 'sync' "

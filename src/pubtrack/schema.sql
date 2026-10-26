@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS works (
   title_norm      TEXT NOT NULL,
   year            INTEGER,
   venue           TEXT,
+  type            TEXT,                   -- OpenAlex work type (article, dataset, ...); NULL for Scholar only rows
   authors         TEXT,                   -- semicolon separated, from OpenAlex where matched
   n_authors       INTEGER,
   author_position INTEGER,                -- 1 based position of the tracked author

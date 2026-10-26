@@ -134,9 +134,11 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                 if prev:
                     for r in con.execute(
                         "SELECT w.work_id, w.openalex_id, w.title FROM work_snapshots p JOIN works w USING (work_id) "
-                        "WHERE p.run_id = ? AND p.source = 'openalex' AND w.excluded = 0 AND NOT EXISTS "
+                        "WHERE p.run_id = ? AND p.source = 'openalex' AND w.excluded = 0 "
+                        "AND (w.type IS NULL OR w.type NOT IN (" + ",".join("?" * len(openalex.SKIP_TYPES)) + ")) "
+                        "AND NOT EXISTS "
                         "(SELECT 1 FROM work_snapshots c WHERE c.run_id = ? AND c.source = 'openalex' AND c.work_id = w.work_id)",
-                        (prev["run_id"], run_id)).fetchall():
+                        (prev["run_id"], *sorted(openalex.SKIP_TYPES), run_id)).fetchall():
                         add_flag(con, run_id, "left_record",
                                  f"{r['openalex_id']} no longer returned for this author: {r['title'][:80]}", r["work_id"])
                 if status["n_openalex"] == 0:
@@ -166,10 +168,16 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                 add_flag(con, run_id, "empty", f"{src}: no included papers, no metrics stored")
                 messages.append(f"{src}: no metrics (no included papers)")
                 continue
-            if author.first_year and vals.get("min_year") and vals["min_year"] < author.first_year and not first_year_flagged:
-                first_year_flagged = True
-                add_flag(con, run_id, "first_year",
-                         f"earliest {src} paper {int(vals['min_year'])} precedes first_year {author.first_year}")
+            if vals.get("min_year") and not first_year_flagged:
+                cur_year = int(today[:4])
+                if author.first_year and vals["min_year"] < author.first_year:
+                    first_year_flagged = True
+                    add_flag(con, run_id, "first_year",
+                             f"earliest {src} paper {int(vals['min_year'])} precedes first_year {author.first_year}")
+                elif not author.first_year and cur_year - vals["min_year"] > 60:
+                    first_year_flagged = True
+                    add_flag(con, run_id, "first_year", f"earliest {src} paper {int(vals['min_year'])} implies an academic "
+                             f"age over 60; a misdated entry? set first_year in authors.yml")
             if src == "openalex":
                 ir = metrics.interim_rate(con, run_id)
                 if ir is not None:

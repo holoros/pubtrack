@@ -17,6 +17,8 @@
 
 FC_SLOPE <- c(-0.5, 0.4)
 FC_DAMP <- 0.8   # damped trend: growth beyond the last complete year decays by 20% a year
+FC_MIN_EXPOSURE <- 0.25  # years; floor on exposure for papers dated the current year
+
 
 .rmvn2 <- function(n, mu, V) {
   L <- tryCatch(chol(V), error = function(e) NULL)
@@ -106,7 +108,10 @@ forecast_author <- function(p, wyc, snap, unit = "scholar", nsim = 2000, seed = 
       # Young papers are still ramping up, so the rate rests on the latest complete year plus the
       # year to date rather than the whole record.
       last <- utils::tail(d$y, 1)
-      lam <- stats::rgamma(nsim, shape = sum(last) + d$partial + 0.5, rate = length(last) + f)
+      # A paper dated this year has no complete year: its exposure is the year to date, floored at a
+      # quarter so a January snapshot cannot turn 0 or 1 citations into a rate of tens per year.
+      expo <- if (length(last)) length(last) + f else max(f, FC_MIN_EXPOSURE)
+      lam <- stats::rgamma(nsim, shape = sum(last) + d$partial + 0.5, rate = expo)
       for (k in seq_len(H)) draws[, i, k] <- stats::rpois(nsim, d$k * lam)
     } else {
       v <- p$velocity[i]
@@ -168,10 +173,13 @@ forecast_author <- function(p, wyc, snap, unit = "scholar", nsim = 2000, seed = 
 h_frontier <- function(papers_unit) {
   c <- sort(papers_unit$unit_citations, decreasing = TRUE)
   h <- h_of(c)
-  papers_unit |> dplyr::arrange(dplyr::desc(unit_citations)) |>
+  d <- papers_unit |> dplyr::arrange(dplyr::desc(unit_citations)) |>
     dplyr::mutate(rank = dplyr::row_number(), needed = pmax(h + 1 - unit_citations, 0)) |>
-    dplyr::filter(rank <= h + 1, rank >= max(h - 3, 1) | needed > 0) |>
     dplyr::filter(needed > 0)
+  if (nrow(d) == 0) return(d)
+  # every paper as close as the (h + 1)th, not only those ranked at or above it
+  thr <- min(d$needed[d$rank <= h + 1], max(d$needed))
+  dplyr::filter(d, needed <= thr)
 }
 
 # Backtest: refit with OpenAlex counts through the year before last, forecast last year, and compare

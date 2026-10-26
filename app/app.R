@@ -259,9 +259,9 @@ server <- function(input, output, session) {
     focal_papers() |> arrange(desc(unit_citations)) |>
       transmute(work_id, Title = title, Year = year, Venue = clean_venue(venue), Role = role, Citations = unit_citations,
                 OpenAlex = openalex, FWCI = round(fwci, 2), Percentile = round(100 * pct_value, 1),
-                `Velocity yr⁻¹` = round(velocity, 1), `Next 12 mo` = round(f12_med),
-                `80% interval` = ifelse(is.na(f12_lo), "", paste(round(f12_lo), "to", round(f12_hi))),
-                `Trend yr⁻¹` = ifelse(is.na(trend_pct), "", fmt_pct(trend_pct)))
+                `Velocity yr⁻¹` = round(velocity, 1),
+                `Next 12 mo (80% interval)` = fmt_interval(f12_med, f12_lo, f12_hi, isTRUE(cm()$forecast_ok)),
+                `Trend yr⁻¹` = ifelse(is.na(trend_pct) | !isTRUE(cm()$forecast_ok), "", fmt_pct(trend_pct)))
   })
   output$papers_tbl <- renderDT({
     datatable(select(pview(), -work_id), rownames = FALSE, selection = "single", filter = "top",

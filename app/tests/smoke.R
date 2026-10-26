@@ -37,6 +37,21 @@ kt <- key_indices_table(b$compare[b$compare$author_id == a, ])
 stopifnot(nrow(kt) == 21, !any(grepl("^NA|NA to|\\(NA", kt$Value)))
 stopifnot(all(is.na(b$compare$proj_h_12m) | b$compare$forecast_ok))   # projections carried only past the gate
 stopifnot(all(c("unit_date", "scholar_date", "openalex_date", "h_openalex", "h5", "h5_reported", "author_count_coverage") %in% names(b$compare)))
+# The OpenAlex only author exercises the one source paths, and the mixed unit heatmap caption.
+oa_only <- b$compare$author_id[b$compare$unit == "openalex"]
+stopifnot(length(oa_only) >= 1, any(b$runs$openalex_status == "failed"))
+o <- oa_only[1]
+stopifnot(is.na(b$compare$scholar_date[b$compare$author_id == o]), !is.na(b$compare$h5[b$compare$author_id == o]))
+ko <- key_indices_table(b$compare[b$compare$author_id == o, ])
+stopifnot(!any(grepl("^NA|NA to|\\(NA", ko$Value)))
+wid_o <- b$papers$work_id[b$papers$author_id == o][which.max(b$papers$unit_citations[b$papers$author_id == o])]
+for (nm in c("heat_mixed", "career_h_o", "fan_h_o", "hist_o", "portfolio_o", "paper_a_o")) {
+  g <- switch(nm, heat_mixed = plot_heat(b, ids, o), career_h_o = plot_career(b, ids, "h", o), fan_h_o = plot_fan(b, o, "h"),
+              hist_o = plot_hist(b, o), portfolio_o = plot_portfolio(b, o), paper_a_o = plot_paper_annual(b, o, wid_o))
+  save_png(file.path(out_dir, paste0(nm, ".png")), g)
+}
+stopifnot(nzchar(impact_statement(b, o)), nzchar(paper_statement(b, o, wid_o)))
+cat("\nOA ONLY STATEMENT\n", impact_statement(b, o), "\n")
 cat("\nAUTHOR STATEMENT\n", impact_statement(b, a), "\n\nPAPER STATEMENT\n", paper_statement(b, a, wid), "\n\n")
 for (rk in c("fwci", "rate")) cat(rk, ":", impact_statement(b, a, rk, 2, FALSE), "\n\n")
 
