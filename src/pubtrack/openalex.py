@@ -19,7 +19,7 @@ SELECT = ",".join([
 # Not scholarly output in the citation sense; kept out so they never inflate paper counts.
 # Datasets cover Zenodo, Figshare and Dataverse deposits, which OpenAlex lists once per version.
 SKIP_TYPES = {"erratum", "retraction", "paratext", "peer-review", "grant", "supplementary-materials",
-              "dataset", "libguides", "standard"}
+              "dataset", "software", "libguides", "standard"}  # default; settings.openalex_skip_types overrides
 
 
 class OpenAlexError(RuntimeError):
@@ -170,13 +170,16 @@ def _author_fields(work: dict, author_ids: set[str], surname: str) -> tuple[str,
     return "; ".join(names), n, pos, is_last
 
 
-def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: str, today: str) -> int:
+def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: str, today: str,
+          skip_types=None) -> int:
     """Upsert by openalex_id. Works not yet linked to a Scholar record are stored as OpenAlex only rows;
     matching.reconcile() pairs them with Scholar rows afterwards."""
     from .db import norm_title, run_author
 
     author = run_author(con, run_id)
     ids = set(author_ids)
+    skip = set(skip_types) if skip_types is not None else SKIP_TYPES
+    cur_year = int(today[:4])
     n = 0
     for w in works:
         oid = short_id(w.get("id"))
@@ -184,7 +187,7 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
         if not oid or not title:
             continue
         wtype = (w.get("type") or "") or None
-        if wtype in SKIP_TYPES:
+        if wtype in skip:
             # A row stored before the type was skipped keeps its type so it is not reported as
             # having left the record; it simply gets no further snapshots.
             con.execute("UPDATE works SET type = ? WHERE author_id = ? AND openalex_id = ?", (wtype, author, oid))
@@ -198,17 +201,18 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
             work_id = row["work_id"]
             con.execute(
                 "UPDATE works SET doi = COALESCE(doi, ?), authors = ?, n_authors = ?, author_position = ?, "
-                "is_last_author = ?, year = COALESCE(year, ?), venue = COALESCE(venue, ?), type = ?, last_seen = ? "
-                "WHERE work_id = ?",
-                (doi, authors, n_auth, pos, is_last, w.get("publication_year"), venue, wtype, today, work_id),
+                "is_last_author = ?, year = COALESCE(year, ?), year_openalex = ?, venue = COALESCE(venue, ?), type = ?, "
+                "last_seen = ? WHERE work_id = ?",
+                (doi, authors, n_auth, pos, is_last, w.get("publication_year"), w.get("publication_year"), venue, wtype,
+                 today, work_id),
             )
         else:
             cur = con.execute(
-                "INSERT INTO works(author_id, openalex_id, doi, title, title_norm, year, venue, type, authors, "
-                "n_authors, author_position, is_last_author, match_method, first_seen, last_seen) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
-                (author, oid, doi, title, norm_title(title), w.get("publication_year"), venue, wtype, authors,
-                 n_auth, pos, is_last, today, today),
+                "INSERT INTO works(author_id, openalex_id, doi, title, title_norm, year, year_openalex, venue, type, "
+                "authors, n_authors, author_position, is_last_author, match_method, first_seen, last_seen) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'none', ?, ?)",
+                (author, oid, doi, title, norm_title(title), w.get("publication_year"), w.get("publication_year"),
+                 venue, wtype, authors, n_auth, pos, is_last, today, today),
             )
             work_id = cur.lastrowid
         con.execute(
@@ -216,6 +220,9 @@ def store(con, run_id: int, works: list[dict], author_ids: list[str], surname: s
             (run_id, work_id, int(w.get("cited_by_count") or 0)),
         )
         con.execute("DELETE FROM work_year_counts WHERE work_id = ? AND source = 'openalex'", (work_id,))
+        ytd = sum(int(c.get("cited_by_count") or 0) for c in (w.get("counts_by_year") or []) if int(c["year"]) == cur_year)
+        con.execute("INSERT OR REPLACE INTO work_ytd(run_id, work_id, year, citations) VALUES (?, ?, ?, ?)",
+                    (run_id, work_id, cur_year, ytd))
         for c in w.get("counts_by_year") or []:
             con.execute(
                 "INSERT OR REPLACE INTO work_year_counts(work_id, year, source, citations, run_id) "

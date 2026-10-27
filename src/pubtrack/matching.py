@@ -64,12 +64,12 @@ def merge_pair(con, gs_work_id: int, oa_work_id: int, method: str, score: float 
     con.execute("UPDATE works SET openalex_id = NULL WHERE work_id = ?", (oa_work_id,))
     con.execute(
         "UPDATE works SET openalex_id = ?, doi = COALESCE(doi, ?), authors = ?, n_authors = ?, "
-        "author_position = ?, is_last_author = ?, year = COALESCE(year, ?), type = ?, match_method = ?, "
-        "match_score = ? WHERE work_id = ?",
+        "author_position = ?, is_last_author = ?, year = COALESCE(year, ?), year_openalex = ?, type = ?, "
+        "match_method = ?, match_score = ? WHERE work_id = ?",
         (oa["openalex_id"], oa["doi"], oa["authors"], oa["n_authors"], oa["author_position"],
-         oa["is_last_author"], oa["year"], oa["type"], method, score, gs_work_id),
+         oa["is_last_author"], oa["year"], oa["year_openalex"], oa["type"], method, score, gs_work_id),
     )
-    for table in ("work_snapshots", "work_year_counts", "work_impact"):
+    for table in ("work_snapshots", "work_year_counts", "work_impact", "work_ytd", "work_state"):
         # A Scholar row could already hold OpenAlex data from an earlier link; the OA row's is newer.
         if table == "work_snapshots":
             con.execute("DELETE FROM work_snapshots WHERE work_id = ? AND source = 'openalex' AND run_id IN "
@@ -78,8 +78,8 @@ def merge_pair(con, gs_work_id: int, oa_work_id: int, method: str, score: float 
         elif table == "work_year_counts":
             con.execute("DELETE FROM work_year_counts WHERE work_id = ? AND source = 'openalex'", (gs_work_id,))
         else:
-            con.execute("DELETE FROM work_impact WHERE work_id = ? AND run_id IN "
-                        "(SELECT run_id FROM work_impact WHERE work_id = ?)", (gs_work_id, oa_work_id))
+            con.execute(f"DELETE FROM {table} WHERE work_id = ? AND run_id IN "
+                        f"(SELECT run_id FROM {table} WHERE work_id = ?)", (gs_work_id, oa_work_id))
         con.execute(f"UPDATE {table} SET work_id = ? WHERE work_id = ?", (gs_work_id, oa_work_id))
     con.execute("UPDATE flags SET work_id = ? WHERE work_id = ?", (gs_work_id, oa_work_id))
     con.execute("DELETE FROM works WHERE work_id = ?", (oa_work_id,))
@@ -156,7 +156,8 @@ RETRY_AFTER_DAYS = 90  # a miss is searched again after this long while the pape
 RETRY_YOUNG_YEARS = 3
 
 
-def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 120) -> dict:
+def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, today: str, cap: int = 120,
+                          skip_types=None) -> dict:
     """For Scholar works still unmatched, search OpenAlex by title once each, store a near exact hit
     (within a year) as this author's OpenAlex record, and link it. Every search is logged, hit or miss."""
     from . import openalex
@@ -197,7 +198,7 @@ def title_search_fallback(con, author, run_id: int, mailto: str, api_key: str, t
             taken = con.execute("SELECT work_id, gs_id FROM works WHERE author_id = ? AND openalex_id = ?",
                                 (author.id, oid)).fetchone()
             if taken is None:
-                openalex.store(con, run_id, [w], author.openalex_ids, author.surname, today)
+                openalex.store(con, run_id, [w], author.openalex_ids, author.surname, today, skip_types)
                 oa_row = con.execute("SELECT work_id FROM works WHERE author_id = ? AND openalex_id = ?",
                                      (author.id, oid)).fetchone()
                 if oa_row is not None:  # store() skips non research types such as errata

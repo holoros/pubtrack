@@ -91,7 +91,8 @@ plot_career <- function(b, ids, what = c("citations", "h"), focal = NULL) {
     d <- b$recon |> dplyr::filter(author_id %in% ids, metric == "h") |>
       dplyr::mutate(age = year - fy[author_id] + 1)
     now <- b$compare |> dplyr::filter(author_id %in% ids, !is.na(h_openalex)) |>
-      dplyr::transmute(author_id, value = h_openalex, age = academic_age, year = as.integer(format(openalex_date, "%Y")))
+      dplyr::transmute(author_id, value = h_openalex, year = as.integer(format(openalex_date, "%Y")),
+                       age = year - fy[author_id] + 1)   # same origin as the reconstructed points
     d <- dplyr::bind_rows(d, now)
     ylab <- "h index (OpenAlex)"; cap <- "OpenAlex year end h (reconstructed from per work yearly counts, 2012 onward) joined to the current OpenAlex h, so one source throughout. Grey lines: Hirsch m = 1, 2, 3 (h = m times academic age)."
   }

@@ -22,6 +22,8 @@ TABLES = {  # table -> ORDER BY used for export
     "profile_snapshots": "run_id",
     "profile_year_counts": "run_id, year",
     "work_impact": "run_id, work_id",
+    "work_state": "run_id, work_id",
+    "work_ytd": "run_id, work_id",
     "metrics": "run_id, source, metric",
     "overrides": "override_id",
     "flags": "run_id, kind, work_id, detail",

@@ -311,7 +311,16 @@ server <- function(input, output, session) {
                                     "(80%% interval %s to %s). OpenAlex recorded %s, a ratio of %.2f. Per paper 80%% intervals ",
                                     "covered %s of observed counts."),
                              bt$target_year - 1, fmt_n(bt$pred_q50), bt$n_papers, bt$target_year, fmt_n(bt$pred_q10),
-                             fmt_n(bt$pred_q90), fmt_n(bt$observed), bt$ratio, fmt_pct(bt$paper_cov80)))))
+                             fmt_n(bt$pred_q90), fmt_n(bt$observed), bt$ratio, fmt_pct(bt$paper_cov80))),
+                   {
+                     by <- B$backtest_young
+                     by <- if (is.null(by)) NULL else by[by$author_id == fa(), ]
+                     if (is.null(by) || nrow(by) == 0)
+                       p(class = "small text-muted", "Young paper check: not yet possible; it needs year to date counts stored about a year ago (collected since 27 October 2026).")
+                     else p(class = "small", sprintf(paste0("Young paper check: for the %d papers published in %d, the rates drawn on %s implied %s citations ",
+                                                            "over the next twelve months; OpenAlex recorded about %s (ratio %.2f)."),
+                                                     by$n_papers, by$year, format(by$ytd_date, "%d %b %Y"), fmt_n(by$predicted), fmt_n(by$observed), by$ratio))
+                   }))
   })
   output$p_hcore <- renderPlotly(pt_plotly(plot_hcore(B, fa())))
 

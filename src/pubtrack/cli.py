@@ -97,6 +97,10 @@ def cmd_sync(a):
     cfg = _cfg(a)
     st_dir = _store(cfg, a)
     only = [x.strip() for x in a.author.split(",")] if a.author else None
+    if only:
+        unknown = [x for x in only if x not in {au.id for au in cfg.authors}]
+        if unknown:
+            sys.exit(f"unknown author id(s): {', '.join(unknown)}; tracked: {', '.join(au.id for au in cfg.authors)}")
     via = a.scholar_via or None
     with store.opened(st_dir, write=not a.dry_run) as con:
         plans = plan(con, cfg, only=only, force_scholar=a.force_scholar, force_openalex=a.force_openalex,

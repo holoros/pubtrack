@@ -132,9 +132,12 @@ def window_citations_openalex(con, run_id: int, y0: int, y1: int) -> dict[int, i
     """Citations each included paper received in [y0, y1], from OpenAlex counts_by_year (merged
     duplicates folded into their target). Only works with an OpenAlex snapshot in this run count, so
     a work that left the record does not keep contributing. Papers with no counts map to 0."""
+    has_state = con.execute("SELECT 1 FROM work_state WHERE run_id = ? LIMIT 1", (run_id,)).fetchone() is not None
+    src_tbl = "work_state w" if has_state else "works w"
+    extra = "AND w.run_id = s.run_id" if has_state else ""
     rows = con.execute(
-        "SELECT w.work_id, w.merged_into, COALESCE(SUM(c.citations), 0) AS n "
-        "FROM works w JOIN work_snapshots s ON s.work_id = w.work_id AND s.source = 'openalex' AND s.run_id = ? "
+        f"SELECT w.work_id, w.merged_into, COALESCE(SUM(c.citations), 0) AS n "
+        f"FROM {src_tbl} JOIN work_snapshots s ON s.work_id = w.work_id AND s.source = 'openalex' AND s.run_id = ? {extra} "
         "LEFT JOIN work_year_counts c ON c.work_id = w.work_id AND c.source = 'openalex' "
         "AND c.year BETWEEN ? AND ? "
         "WHERE w.excluded = 0 GROUP BY w.work_id", (run_id, y0, y1)).fetchall()
@@ -151,11 +154,28 @@ def window_citations_openalex(con, run_id: int, y0: int, y1: int) -> dict[int, i
     return out
 
 
+def freeze_state(con, run_id: int, author_id: str) -> None:
+    """Record the non citation inputs of every index for this run (year, author count, exclusion,
+    merge target), so the run's metrics can be reproduced after the live works rows change."""
+    con.execute("DELETE FROM work_state WHERE run_id = ?", (run_id,))
+    con.execute(
+        "INSERT INTO work_state(run_id, work_id, year, year_openalex, n_authors, excluded, merged_into) "
+        "SELECT ?, work_id, year, year_openalex, n_authors, excluded, merged_into FROM works WHERE author_id = ?",
+        (run_id, author_id))
+    con.commit()
+
+
 def paper_table(con, run_id: int, source: str) -> list[dict]:
-    """Included papers for one source and run, with merged duplicates folded into their target."""
+    """Included papers for one source and run, with merged duplicates folded into their target.
+    Inputs come from the run's frozen work_state when it exists (runs since 0.2.4), else from the live
+    works rows. The OpenAlex source uses the OpenAlex publication year where it has one."""
+    has_state = con.execute("SELECT 1 FROM work_state WHERE run_id = ? LIMIT 1", (run_id,)).fetchone() is not None
+    src_tbl = "work_state w" if has_state else "works w"
+    extra = "AND w.run_id = s.run_id" if has_state else ""
+    year = "COALESCE(w.year_openalex, w.year)" if source == "openalex" else "w.year"
     rows = con.execute(
-        "SELECT w.work_id, w.year, w.n_authors, w.merged_into, w.excluded, s.citations "
-        "FROM work_snapshots s JOIN works w USING (work_id) WHERE s.run_id = ? AND s.source = ?",
+        f"SELECT w.work_id, {year} AS year, w.n_authors, w.merged_into, w.excluded, s.citations "
+        f"FROM work_snapshots s JOIN {src_tbl} ON w.work_id = s.work_id {extra} WHERE s.run_id = ? AND s.source = ?",
         (run_id, source),
     ).fetchall()
     papers = {r["work_id"]: dict(r) for r in rows if not r["excluded"] and r["merged_into"] is None}

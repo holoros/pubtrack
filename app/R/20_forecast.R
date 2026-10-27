@@ -215,3 +215,34 @@ backtest_author <- function(p, wyc, snap, nsim = 1000, seed = 7) {
                                         observed = sum(obs), .groups = "drop"))
   )
 }
+
+
+# Young paper check: the main backtest cannot score papers published in the target year, since it
+# forecasts from 1 January. This one uses the year to date counts the collector has stored per run
+# (work_ytd, since 0.2.4): find a run about a year before the snapshot, take the papers published in
+# that run's year, reproduce the rate the forecast would have drawn then ((ytd + 0.5) / exposure,
+# exposure floored as in forecast_author), and compare the implied next twelve months with what
+# OpenAlex recorded: the rest of that year plus the matching fraction of the following year.
+# Returns NULL until such a run exists (first possible: October 2027).
+backtest_young <- function(p, wyc, ytd, runs_a, ro, snap, tol_days = 14) {
+  if (is.null(ytd) || nrow(ytd) == 0 || is.na(ro)) return(NULL)
+  then <- runs_a[runs_a$openalex_status %in% "ok" & abs(as.numeric(runs_a$snapshot_date - (snap - 365))) <= tol_days, ]
+  if (nrow(then) == 0) return(NULL)
+  r0 <- then$run_id[which.min(abs(as.numeric(then$snapshot_date - (snap - 365))))]
+  d0 <- then$snapshot_date[then$run_id == r0]
+  Y <- as.integer(format(d0, "%Y"))
+  if (Y >= as.integer(format(snap, "%Y"))) return(NULL)   # need the following year to be observable
+  f0 <- (as.integer(format(d0, "%j")) - 0.5) / 365.25
+  y0 <- ytd[ytd$run_id == r0 & ytd$year == Y, c("work_id", "citations")]
+  pub <- p[!is.na(p$openalex_id) & dplyr::coalesce(p$year_openalex, p$year) %in% Y, c("work_id", "title")]
+  d <- dplyr::inner_join(pub, y0, by = "work_id")
+  if (nrow(d) < 5) return(NULL)
+  full <- wyc |> dplyr::filter(year %in% c(Y, Y + 1)) |> tidyr::pivot_wider(id_cols = work_id, names_from = year,
+                                                                          values_from = citations, values_fill = 0)
+  d <- d |> dplyr::left_join(full, by = "work_id")
+  cY <- d[[as.character(Y)]] %||% rep(0, nrow(d)); cY1 <- d[[as.character(Y + 1)]] %||% rep(0, nrow(d))
+  d$predicted <- (d$citations + 0.5) / max(f0, FC_MIN_EXPOSURE)
+  d$observed <- pmax(cY - d$citations, 0) + f0 * cY1
+  tibble::tibble(ytd_run = r0, ytd_date = d0, year = Y, n_papers = nrow(d), predicted = sum(d$predicted),
+                 observed = sum(d$observed), ratio = sum(d$predicted) / max(sum(d$observed), 1))
+}

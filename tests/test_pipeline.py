@@ -449,3 +449,48 @@ def test_fuzzy_match_and_margin(env, monkeypatch):
     assert st["matching"]["title_fuzzy"] == 1
     assert con.execute("SELECT openalex_id, match_method FROM works WHERE gs_id = 'AUTH:f1'").fetchone()[:] == ("W80", "title_fuzzy")
     assert con.execute("SELECT openalex_id FROM works WHERE gs_id = 'AUTH:f2'").fetchone()[0] is None
+
+
+def test_frozen_state_reproduces_old_metrics(env):
+    con, cfg, _ = env
+    st1 = S(con, cfg, "2026-10-04")
+    hin1 = st1["metrics_scholar"]["hI_norm"]
+    # Matching improves later (an author count appears on a Scholar only paper): run 1 must not move
+    con.execute("UPDATE works SET n_authors = 1 WHERE gs_id = 'AUTH:p5'")
+    con.commit()
+    assert metrics.compute(con, st1["run_id"], "scholar", 0)["hI_norm"] == hin1
+    assert con.execute("SELECT COUNT(*) FROM work_state WHERE run_id = ?", (st1["run_id"],)).fetchone()[0] > 0
+    assert con.execute("SELECT COUNT(*) FROM work_ytd WHERE run_id = ? AND year = 2026", (st1["run_id"],)).fetchone()[0] == 4
+
+
+def test_openalex_uses_its_own_year(env, monkeypatch):
+    con, cfg, _ = env
+    # Scholar dates p3 2018, OpenAlex dates W3 2019: each source ages the paper by its own year
+    st = S(con, cfg, "2026-10-04")
+    w = con.execute("SELECT year, year_openalex FROM works WHERE gs_id = 'AUTH:p3'").fetchone()
+    assert (w["year"], w["year_openalex"]) == (2018, 2019)
+    ps = {p["work_id"]: p for p in metrics.paper_table(con, st["run_id"], "scholar")}
+    po = {p["work_id"]: p for p in metrics.paper_table(con, st["run_id"], "openalex")}
+    wid = con.execute("SELECT work_id FROM works WHERE gs_id = 'AUTH:p3'").fetchone()[0]
+    assert ps[wid]["year"] == 2018 and po[wid]["year"] == 2019
+
+
+def test_software_skipped_and_skip_types_configurable(env, monkeypatch):
+    con, cfg, _ = env
+    sw = oa_work("W90", "pubtrack: a bibliometrics collector", 2026, 1, "10.5281/sw", 1, 1, None, False, [])
+    sw["type"] = "software"
+    monkeypatch.setattr(openalex, "fetch_works", lambda *a, **k: OA_WORKS + [sw])
+    st = S(con, cfg, "2026-10-04")
+    assert st["metrics_openalex"]["n_papers"] == 4
+    cfg.settings.openalex_skip_types = ("erratum",)  # a site that wants software counted
+    st = S(con, cfg, "2026-10-11")
+    assert st["metrics_openalex"]["n_papers"] == 5
+
+
+def test_unknown_author_id_is_an_error(env, tmp_path, monkeypatch, capsys):
+    from pubtrack import cli
+    yml = tmp_path / "authors.yml"
+    yml.write_text(AUTHORS_YML)
+    with pytest.raises(SystemExit) as e:
+        cli.main(["--authors", str(yml), "sync", "--author", "nobody", "--dry-run"])
+    assert "unknown author id" in str(e.value)

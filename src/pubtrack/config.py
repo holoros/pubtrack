@@ -40,6 +40,10 @@ class Settings:
     serpapi_key: str = ""
     openalex_key: str = ""
     mailto: str = ""
+    # OpenAlex work types left out of every count. Datasets and software are deposits (one record per
+    # version); the rest are not citable scholarly output. Override with settings.openalex_skip_types.
+    openalex_skip_types: tuple = ("erratum", "retraction", "paratext", "peer-review", "grant",
+                                  "supplementary-materials", "dataset", "software", "libguides", "standard")
 
 
 @dataclass
@@ -99,6 +103,8 @@ def load(path: Path | None = None) -> Config:
         openalex_key=os.environ.get("OPENALEX_API_KEY", "").strip(),
         mailto=os.environ.get("OPENALEX_MAILTO", str(s.get("openalex_mailto", "") or "")).strip(),
     )
+    if s.get("openalex_skip_types") is not None:
+        settings.openalex_skip_types = tuple(str(t).strip() for t in s["openalex_skip_types"])
     if settings.scholar_via not in ("serpapi", "scholarly", "none"):
         raise ValueError("settings.scholar_via must be serpapi, scholarly or none")
     authors, seen = [], set()

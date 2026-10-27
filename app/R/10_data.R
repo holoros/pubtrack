@@ -27,7 +27,7 @@ read_store <- function(dir) {
     if (!file.exists(f)) return(NULL)
     utils::read.csv(f, stringsAsFactors = FALSE, na.strings = "", check.names = FALSE, encoding = "UTF-8")
   }
-  tabs <- c("runs", "works", "work_snapshots", "work_year_counts", "profile_snapshots", "profile_year_counts",
+  tabs <- c("runs", "works", "work_snapshots", "work_year_counts", "profile_snapshots", "profile_year_counts", "work_ytd",
             "work_impact", "metrics", "overrides", "flags")
   s <- setNames(lapply(tabs, rd), tabs)
   if (is.null(s$runs) || nrow(s$runs) == 0) stop("No runs in ", dir, ". Run `pubtrack sync` first.")
@@ -63,6 +63,7 @@ last_ok_run <- function(runs, aid, src) {
 # Per paper table for one author at the latest successful run of each source, merged duplicates folded in.
 author_papers <- function(s, aid, rs, ro) {
   w <- s$works[s$works$author_id == aid, ]
+  if (!"year_openalex" %in% names(w)) w$year_openalex <- NA_integer_   # stores written before 0.2.4
   ws <- s$work_snapshots
   cur <- function(src, run) {
     if (is.na(run)) return(tibble::tibble(work_id = integer(), citations = integer()))
@@ -155,7 +156,7 @@ annualized_block <- function(p, c_unit_by_paper, A, cy, wyc, h5_rep = NA, i10_5y
   rate <- (cc / age)[!is.na(yr)]
   # OpenAlex part: papers with an OpenAlex count
   oa <- !is.na(p$openalex)
-  oc <- p$openalex[oa]; oy <- p$year[oa]
+  oc <- p$openalex[oa]; oy <- dplyr::coalesce(p$year_openalex, p$year)[oa]   # OpenAlex ages by its own year
   recent <- !is.na(oy) & oy >= y0 & oy <= y1
   rc <- oc[recent]
   if (any(oa)) {
@@ -202,7 +203,9 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     ms <- m_now("scholar", rs); mo <- m_now("openalex", ro)
     base <- if (unit == "scholar") ms else mo
     A <- base$academic_age %||% NA_real_
-    first_year <- as.integer(format(snap, "%Y")) - A + 1
+    # The collector stores the earliest year it saw (min_year); deriving it from the academic age and
+    # the snapshot year shifted by one when the two runs straddled a year end.
+    first_year <- base[["min_year"]] %||% (as.integer(format(snap, "%Y")) - A + 1)
     cfg_fy <- meta$cfg_first_year[meta$author_id == aid]
     if (length(cfg_fy) && cfg_fy > 0) first_year <- cfg_fy
     ps <- if (is.na(rs) || is.null(s$profile_snapshots)) NULL else s$profile_snapshots[s$profile_snapshots$run_id == rs, ]
@@ -218,6 +221,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
                                 s$work_year_counts$work_id %in% p$work_id, c("work_id", "year", "citations")]
     fc <- forecast_author(p, wyc, snap, unit, nsim = nsim, seed = seed)
     bt <- tryCatch(backtest_author(p, wyc, snap, nsim = min(nsim, 1000)), error = function(e) NULL)
+    bty <- tryCatch(backtest_young(p, wyc, s$work_ytd, runs[runs$author_id == aid, ], ro, snap), error = function(e) NULL)
     # fc$papers keeps only papers with a count in the author's unit; papers_all keeps OpenAlex only
     # works too, which the OpenAlex window block needs for a Scholar unit author.
     list(aid = aid, rs = rs, ro = ro, snap = snap, unit = unit, papers = fc$papers, papers_all = p, paper_fc = fc$paper_fc,
@@ -225,7 +229,8 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
          recon = reconstruct(s, aid, ro), ms = ms, mo = mo, first_year = first_year,
          h5_rep = if (!is.null(ps) && nrow(ps)) ps$h5_reported[1] else NA_integer_,
          i10_5y_rep = if (!is.null(ps) && nrow(ps)) ps$i10_5y_reported[1] else NA_integer_,
-         backtest = if (is.null(bt)) NULL else dplyr::mutate(bt, author_id = aid))
+         backtest = if (is.null(bt)) NULL else dplyr::mutate(bt, author_id = aid),
+         backtest_young = if (is.null(bty)) NULL else dplyr::mutate(bty, author_id = aid))
   })
   names(per) <- meta$author_id
 
@@ -328,6 +333,7 @@ build_bundle <- function(store_dir, authors_yml = NULL, nsim = 2000, seed = 2026
     recon = { r <- dplyr::bind_rows(lapply(per, `[[`, "recon")); if (nrow(r) == 0) NULL else r },
     shared = shared,
     backtest = dplyr::bind_rows(lapply(per, function(x) if (is.null(x$backtest)) NULL else dplyr::select(x$backtest, -by_method))),
+    backtest_young = { r <- dplyr::bind_rows(lapply(per, `[[`, "backtest_young")); if (nrow(r) == 0) NULL else r },
     runs = tibble::as_tibble(runs),
     flags = flags_latest
   )

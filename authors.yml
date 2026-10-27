@@ -11,10 +11,12 @@
 # group            free label; "self" sorts first
 #
 # A change to this file triggers a fetch on push (used on 26 October 2026 to backfill OpenAlex after the paging fix,
-# and again the same day to apply the dataset and version rules of 0.2.3; a push that edits this file forces the OpenAlex pass).
+# and again the same day to apply the dataset and version rules of 0.2.3; a push that edits this file forces the OpenAlex pass;
+# 27 October 2026 for the frozen inputs and year to date counts of 0.2.4).
 
 settings:
   scholar_via: serpapi          # serpapi | scholarly (local machine only) | none
+  # openalex_skip_types: [erratum, retraction, paratext, peer-review, grant, supplementary-materials, dataset, software, libguides, standard]
   serpapi_monthly_budget: 240   # free tier is 250 searches a month; failed and cached calls are free
   openalex_cadence: weekly
 

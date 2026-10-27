@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS works (
   year            INTEGER,
   venue           TEXT,
   type            TEXT,                   -- OpenAlex work type (article, dataset, ...); NULL for Scholar only rows
+  year_openalex   INTEGER,                -- OpenAlex publication year, kept beside Scholar's so each source uses its own
   authors         TEXT,                   -- semicolon separated, from OpenAlex where matched
   n_authors       INTEGER,
   author_position INTEGER,                -- 1 based position of the tracked author
@@ -89,6 +90,29 @@ CREATE TABLE IF NOT EXISTS work_impact (
   pct_value  REAL,
   top1       INTEGER,
   top10      INTEGER,
+  PRIMARY KEY (run_id, work_id)
+);
+
+-- The non citation inputs of every index, frozen per run, so a stored metric can be reproduced
+-- after matching or overrides change the live works row.
+CREATE TABLE IF NOT EXISTS work_state (
+  run_id       INTEGER NOT NULL REFERENCES runs(run_id),
+  work_id      INTEGER NOT NULL REFERENCES works(work_id),
+  year         INTEGER,
+  year_openalex INTEGER,
+  n_authors    INTEGER,
+  excluded     INTEGER NOT NULL,
+  merged_into  INTEGER,
+  PRIMARY KEY (run_id, work_id)
+);
+
+-- OpenAlex citations in the current calendar year at the time of the run (year to date), kept per
+-- run so a later backtest can score papers published in the year of the snapshot.
+CREATE TABLE IF NOT EXISTS work_ytd (
+  run_id    INTEGER NOT NULL REFERENCES runs(run_id),
+  work_id   INTEGER NOT NULL REFERENCES works(work_id),
+  year      INTEGER NOT NULL,
+  citations INTEGER NOT NULL,
   PRIMARY KEY (run_id, work_id)
 );
 

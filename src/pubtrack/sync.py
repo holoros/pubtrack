@@ -122,7 +122,8 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                 prev = con.execute(
                     "SELECT run_id FROM runs WHERE author_id = ? AND openalex_status = 'ok' AND run_id < ? "
                     "ORDER BY run_id DESC LIMIT 1", (author.id, run_id)).fetchone()
-                status["n_openalex"] = openalex.store(con, run_id, works, ids, author.surname, today)
+                status["n_openalex"] = openalex.store(con, run_id, works, ids, author.surname, today,
+                                                      s.openalex_skip_types)
                 status["openalex_status"] = "ok"
                 if linked:
                     stored = {r[0] for r in con.execute(
@@ -135,10 +136,10 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
                     for r in con.execute(
                         "SELECT w.work_id, w.openalex_id, w.title FROM work_snapshots p JOIN works w USING (work_id) "
                         "WHERE p.run_id = ? AND p.source = 'openalex' AND w.excluded = 0 "
-                        "AND (w.type IS NULL OR w.type NOT IN (" + ",".join("?" * len(openalex.SKIP_TYPES)) + ")) "
+                        "AND (w.type IS NULL OR w.type NOT IN (" + ",".join("?" * len(s.openalex_skip_types)) + ")) "
                         "AND NOT EXISTS "
                         "(SELECT 1 FROM work_snapshots c WHERE c.run_id = ? AND c.source = 'openalex' AND c.work_id = w.work_id)",
-                        (prev["run_id"], *sorted(openalex.SKIP_TYPES), run_id)).fetchall():
+                        (prev["run_id"], *sorted(s.openalex_skip_types), run_id)).fetchall():
                         add_flag(con, run_id, "left_record",
                                  f"{r['openalex_id']} no longer returned for this author: {r['title'][:80]}", r["work_id"])
                 if status["n_openalex"] == 0:
@@ -152,13 +153,15 @@ def sync(con, cfg: Config, author: Author, sources=("scholar", "openalex"), scho
     status["matching"] = matching.reconcile(con, author.id)
     if status["openalex_status"] == "ok" and status["matching"].get("unmatched_scholar"):
         try:
-            fb = matching.title_search_fallback(con, author, run_id, s.mailto, s.openalex_key, today)
+            fb = matching.title_search_fallback(con, author, run_id, s.mailto, s.openalex_key, today,
+                                                skip_types=s.openalex_skip_types)
             status["matching"]["title_search"] = fb
             status["matching"]["unmatched_scholar"] -= fb["linked"]
         except Exception as e:  # the fallback is a bonus; never fail the run on it
             messages.append(f"title search fallback: {e}")
     messages += overrides.apply(con, author.id, "post", run_id)
     messages += run_checks(con, run_id, author.id, raw)
+    metrics.freeze_state(con, run_id, author.id)
 
     first_year_flagged = False
     for src in ("scholar", "openalex"):
