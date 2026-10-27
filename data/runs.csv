@@ -7,3 +7,4 @@ run_id,author_id,started,finished,snapshot_date,origin,scholar_status,openalex_s
 6,weiskittel,2026-10-26T15:13:49+00:00,2026-10-26T15:13:57+00:00,2026-10-26,sync,ok,failed,serpapi,4,368,,"OpenAlex: OpenAlex HTTP 401 on /works: {""error"":""API key required for cursor paging"",""message"":""Paging past the first page with cursor= needs a free API key. Get one in a minute at https://openalex.org/settings/api""}"
 7,weiskittel,2026-10-26T18:11:29+00:00,2026-10-26T18:11:32+00:00,2026-10-26,sync,skipped,ok,,,,357,
 8,weiskittel,2026-10-26T20:20:45+00:00,2026-10-26T20:20:48+00:00,2026-10-26,sync,skipped,ok,,,,305,
+9,weiskittel,2026-10-27T09:52:41+00:00,2026-10-27T09:52:43+00:00,2026-10-27,sync,skipped,ok,,,,299,
