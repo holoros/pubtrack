@@ -55,7 +55,7 @@ jobs:
       - name: Fetch new snapshots
         env:
           SERPAPI_KEY: ${{ secrets.SERPAPI_KEY }}
-          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY }}
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY || secrets.OPENALEX }}
           OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
           SKIP_SYNC: ${{ inputs.skip_sync }}
           EVENT: ${{ github.event_name }}
