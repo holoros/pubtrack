@@ -9,3 +9,4 @@ run_id,author_id,started,finished,snapshot_date,origin,scholar_status,openalex_s
 8,weiskittel,2026-10-26T20:20:45+00:00,2026-10-26T20:20:48+00:00,2026-10-26,sync,skipped,ok,,,,305,
 9,weiskittel,2026-10-27T09:52:41+00:00,2026-10-27T09:52:43+00:00,2026-10-27,sync,skipped,ok,,,,299,
 10,weiskittel,2026-11-07T15:57:43+00:00,2026-11-07T15:57:52+00:00,2026-11-07,sync,ok,ok,serpapi,4,369,293,
+11,weiskittel,2026-11-07T17:14:45+00:00,2026-11-07T17:14:47+00:00,2026-11-07,sync,skipped,ok,,,,293,
