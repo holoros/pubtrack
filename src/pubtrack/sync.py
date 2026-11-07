@@ -251,7 +251,7 @@ def plan(con, cfg: Config, only: list[str] | None = None, force_scholar=False, f
         plans.append(Plan(a, gs, oa, serpapi_estimate(con, a.id) if gs and via == "serpapi" else 0,
                           f"scholar last ok {d_gs} d ago, openalex last ok {d_oa} d ago"))
     if via == "serpapi":
-        left = cfg.settings.serpapi_monthly_budget - serpapi_used_this_month(con)
+        left = cfg.settings.serpapi_monthly_budget - serpapi_used_this_month(con, datetime(today.year, today.month, today.day, tzinfo=timezone.utc))
         def staleness(p):  # never synced counts as stalest; 0 days (synced today) is the freshest, not unknown
             d = _days_since_ok(con, p.author.id, "scholar", today)
             return 10_000 if d is None else d
