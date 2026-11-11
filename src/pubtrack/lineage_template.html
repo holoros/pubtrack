@@ -212,7 +212,7 @@ function draw() {
   const other = lab.filter(d => d.data.relation !== "self");
   const addName = sel => sel.append("tspan").attr("fill", d => d.data.metrics ? C.ink : C.muted).text(d => d.data.name);
   const addMetric = sel => sel.filter(() => state.labels === "metrics").append("tspan")
-    .attr("font-size", 11.5).attr("fill", C.faint).attr("dx", 6).text(d => (d.data.method === "name" ? "≈ " : "") + metricText(d.data.metrics));
+    .attr("font-size", 11.5).attr("fill", C.faint).attr("dx", 6).text(d => (d.data.method === "name" ? "≈ " : "") + metricText(d.data.metrics) + (d.data.metrics && d.data.metrics.mixed ? " †" : ""));
   // For advisors (end anchored) the metric still reads after the name; tspans keep source order either way.
   addName(other); addMetric(other);
 
@@ -249,11 +249,12 @@ function renderStats(A) {
 function renderLegend() {
   const it = [[C.green, "Tracked author"], [C.adv[0], "Advisor"], [C.adv[1], "Earlier advisors"], [C.stu[0], "Student"], [C.stu[1], "Grand-student"], [C.off, "No OpenAlex match"]];
   document.getElementById("legend").innerHTML = it.map(([c, t]) => `<span><span class="dot" style="background:${c}"></span>${t}</span>`).join("")
-    + `<span><span class="ring"></span>More relatives not shown (click a node to fold or unfold)</span><span><span class="dash"></span>≈ matched by name only</span>`;
+    + `<span><span class="ring"></span>More relatives not shown (click a node to fold or unfold)</span><span><span class="dash"></span>≈ matched by name only</span><span>† OpenAlex record may merge two people</span>`;
   const by = state.sizeBy === "none" ? "Nodes are drawn at one size." : `Node area scales with each person's OpenAlex ${state.sizeBy === "h" ? "h index" : "total citations"}.`;
   document.getElementById("caption").innerHTML = `<b>Figure.</b> Academic genealogy with advisors to the left and students to the right. ${by} `
     + `Metrics are OpenAlex author records as of ${DATA.metrics_as_of || "the next refresh"} (works, citations, h and i10 index); they will differ from Google Scholar, which counts more sources. `
     + `A person is matched to OpenAlex by a pinned id, by ORCID, or by name when the candidate has published with the linked advisor or student; a split OpenAlex record sums works and citations and reports the larger part's h index, a lower bound. `
+    + `† marks a record with under half of its topics in the tracked author's fields, a sign that OpenAlex has merged two people; its numbers are likely inflated until the right id is pinned. `
     + `Descendant citations add each person's total, so a paper shared by several descendants counts once for each.`;
 }
 
@@ -269,6 +270,7 @@ function showTip(e, d) {
     + `${m.institution ? `<tr><td>Last institution</td><td>${m.institution}</td></tr>` : ""}</table>`;
   h += `<div class="r" style="margin-top:4px">${methodTxt}${m && m.split ? "; split record combined" : ""}</div>`;
   if (n.method === "name") h += `<div class="warn">Pin openalex_id in lineage.yml to confirm.</div>`;
+  if (m && m.mixed) h += `<div class="warn">Only ${Math.round(100 * m.field_share)}% of this OpenAlex record is in the tracked author's fields; it may merge two people, so these metrics may be inflated.</div>`;
   if (n.note) h += `<div class="r" style="margin-top:4px">${n.note}</div>`;
   tip.innerHTML = h; tip.style.opacity = 1; moveTip(e);
 }
@@ -283,7 +285,7 @@ function renderTable(A) {
     return { name: x.n.name, rel: relLabel(d), color: genColor(d), gen: x.rel === "advisor" ? -x.depth : x.depth, inst: (x.n.metrics && x.n.metrics.institution) || x.n.institution || "",
              works: x.n.metrics ? x.n.metrics.works : null, citations: x.n.metrics ? x.n.metrics.citations : null,
              h: x.n.metrics ? x.n.metrics.h : null, i10: x.n.metrics ? x.n.metrics.i10 : null,
-             oa: x.n.openalex_ids || [], method: x.n.method };
+             oa: x.n.openalex_ids || [], method: x.n.method, mixed: !!(x.n.metrics && x.n.metrics.mixed) };
   });
   const cols = [["name", "Name"], ["gen", "Relation"], ["inst", "Last institution"], ["works", "Works"], ["citations", "Citations"], ["h", "h index"], ["i10", "i10 index"]];
   rows.sort((a, b) => { const va = a[sortCol], vb = b[sortCol]; if (va == null) return 1; if (vb == null) return -1;
@@ -291,7 +293,7 @@ function renderTable(A) {
   const t = document.getElementById("people");
   t.innerHTML = `<caption><b>Table.</b> OpenAlex metrics for every person in the tree. Select a column heading to sort; names link to the OpenAlex record.</caption><thead><tr>`
     + cols.map(([k, l]) => `<th data-k="${k}" ${k === sortCol ? `aria-sort="${sortDir > 0 ? "ascending" : "descending"}"` : ""}>${l}</th>`).join("") + `</tr></thead><tbody>`
-    + rows.map(r => `<tr><td><span class="pill" style="background:${r.color}"></span>${r.oa.length ? `<a href="https://openalex.org/authors/${r.oa[0]}" target="_blank" rel="noopener">${r.name}</a>` : r.name}${r.method === "name" ? " ≈" : ""}</td>`
+    + rows.map(r => `<tr><td><span class="pill" style="background:${r.color}"></span>${r.oa.length ? `<a href="https://openalex.org/authors/${r.oa[0]}" target="_blank" rel="noopener">${r.name}</a>` : r.name}${r.method === "name" ? " ≈" : ""}${r.mixed ? " †" : ""}</td>`
       + `<td>${r.rel}</td><td>${r.inst}</td>` + ["works", "citations", "h", "i10"].map(k => `<td class="num">${r[k] == null ? "n/a" : fmt(r[k])}</td>`).join("") + `</tr>`).join("") + `</tbody>`;
   t.querySelectorAll("th").forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = k === sortCol ? -sortDir : (k === "name" || k === "inst" ? 1 : -1); sortCol = k; renderTable(A); });
 }

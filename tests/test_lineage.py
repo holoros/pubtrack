@@ -56,7 +56,9 @@ def fake_get(path, params):
         ids = params["filter"].split(":", 1)[1].split("|")
         return {"results": [{"id": f"https://openalex.org/{i}", "display_name": i, "works_count": 10,
                              "cited_by_count": 100 * int(i[1:]), "summary_stats": {"h_index": int(i[1:]) % 37,
-                             "i10_index": 3, "2yr_mean_citedness": 1.5}, "last_known_institutions": [{"display_name": "U"}]}
+                             "i10_index": 3, "2yr_mean_citedness": 1.5}, "last_known_institutions": [{"display_name": "U"}],
+                             "topics": [{"count": 40, "field": {"display_name": "Medicine" if i == "A40" else "Forestry"}},
+                                        {"count": 3, "field": {"display_name": "Ecology"}}]}
                             for i in ids]}
     raise AssertionError(path)
 
@@ -128,6 +130,15 @@ def test_page(repo):
     pupil = next(s for s in a["students"] if s["name"] == "Dana Pupil")["metrics"]
     assert pupil["citations"] == 3000 + 3100 and pupil["split"] and pupil["h"] == max(30 % 37, 31 % 37)
     assert next(s for s in a["students"] if s["name"] == "Nobody Known")["metrics"] is None
+    # Focal core fields cover 90% of its topics: Forestry only (40 of 43). Eve's split record holds
+    # Medicine 40 (A40) and Forestry 40 plus Ecology 6: 40 of 86 in field, under half, so flagged.
+    eve = next(s for s in a["students"] if s["name"] == "Eve F. Twin")["metrics"]
+    assert eve["field_share"] == 0.47 and eve["mixed"] and not pupil["mixed"]
+    assert lineage.mixed_records(d) == ["focal: Eve F. Twin (A40,A41, 47% in field)"]
+    # A pinned id is trusted and never flagged.
+    (root / "lineage.yml").write_text(TREE.replace("- name: Eve F. Twin", "- name: Eve F. Twin\n      openalex_id: A40"))
+    lineage.sync(cfg, root / "lineage.yml", root / "data", today=date(2026, 11, 11))
+    assert lineage.mixed_records(lineage.page_data(cfg, root / "lineage.yml", root / "data")) == []
     out = lineage.build_page(cfg, root / "lineage.yml", root / "data", root / "site")
     html = out.read_text()
     assert "/*__LINEAGE_DATA__*/null" not in html and "Carl D. Mentor" in html

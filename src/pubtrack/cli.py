@@ -261,6 +261,10 @@ def cmd_lineage(a):
                  f"{r['metric_rows']} OpenAlex records snapshot"]
         if r["name_only"]:
             lines.append("matched by name only (pin openalex_id to confirm): " + "; ".join(r["name_only"]))
+        mixed = lineage.mixed_records(lineage.page_data(cfg, path, sdir))
+        if mixed:
+            lines.append("OpenAlex record mostly outside the tracked author's fields, possibly merging two people "
+                         "(pin the right openalex_id): " + "; ".join(mixed))
         if r["unresolved"]:
             lines.append("no confident match (add openalex_id or orcid): " + "; ".join(r["unresolved"]))
         print("\n".join(lines))
@@ -271,6 +275,8 @@ def cmd_lineage(a):
         out = lineage.build_page(cfg, path, sdir, Path(a.out))
         print(f"lineage page: {out}")
     else:  # status
+        for m in lineage.mixed_records(lineage.page_data(cfg, path, sdir)):
+            print(f"possibly mixed record  {m}")
         for r in lineage._read(sdir / "lineage_people.csv"):
             if a.verbose or r["method"] in ("unresolved", "name"):
                 print(f"{r['author_id']:<12} {r['method']:<10} {r['openalex_ids'] or '-':<26} {r['name']}  ({r['relation']})")

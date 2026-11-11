@@ -32,7 +32,8 @@ log = logging.getLogger("pubtrack.lineage")
 PEOPLE_COLS = ["author_id", "node_key", "name", "relation", "parent_key", "openalex_ids", "method",
                "shared_works", "checked_date", "spec_hash"]
 METRIC_COLS = ["snapshot_date", "openalex_id", "display_name", "works_count", "cited_by_count", "h_index",
-               "i10_index", "two_yr_mean_citedness", "institution", "orcid"]
+               "i10_index", "two_yr_mean_citedness", "institution", "orcid", "fields"]
+MIXED_SHARE = 0.5     # below this share of topic counts in the tracked author's fields, the record is flagged
 RECHECK_UNRESOLVED_DAYS = 90
 MAX_CANDIDATES = 6
 
@@ -184,7 +185,7 @@ def resolve_person(p: Person, neighbour_ids: list[str], mailto: str, key: str) -
 
 def fetch_metrics(ids: list[str], mailto: str, key: str, today: str) -> list[dict]:
     rows = []
-    sel = "id,display_name,works_count,cited_by_count,summary_stats,last_known_institutions,orcid"
+    sel = "id,display_name,works_count,cited_by_count,summary_stats,last_known_institutions,orcid,topics"
     for i in range(0, len(ids), 50):
         chunk = ids[i:i + 50]
         js = openalex._get("/authors", openalex._params(mailto, key, filter="ids.openalex:" + "|".join(chunk),
@@ -200,8 +201,44 @@ def fetch_metrics(ids: list[str], mailto: str, key: str, today: str) -> list[dic
                 "two_yr_mean_citedness": round(float(ss.get("2yr_mean_citedness") or 0), 3),
                 "institution": (inst[0] or {}).get("display_name", "") if inst else "",
                 "orcid": (a.get("orcid") or "").replace("https://orcid.org/", ""),
+                "fields": _fields(a.get("topics") or []),
             })
     return rows
+
+
+def _fields(topics: list[dict]) -> str:
+    """Topic counts summed by OpenAlex field, largest first: "Environmental Science:140;Medicine:12"."""
+    acc: dict[str, int] = {}
+    for t in topics:
+        f = ((t.get("field") or {}).get("display_name") or "").replace(";", ",").replace(":", " ")
+        if f:
+            acc[f] = acc.get(f, 0) + int(t.get("count") or 0)
+    return ";".join(f"{k}:{v}" for k, v in sorted(acc.items(), key=lambda kv: -kv[1]))
+
+
+def parse_fields(s: str) -> dict[str, int]:
+    out = {}
+    for part in (s or "").split(";"):
+        if ":" in part:
+            k, v = part.rsplit(":", 1)
+            out[k] = int(v or 0)
+    return out
+
+
+def core_fields(fields: dict[str, int], cover: float = 0.9) -> set[str]:
+    """The fields that together hold `cover` of an author's topic counts."""
+    tot, run, out = sum(fields.values()), 0, set()
+    for k, v in sorted(fields.items(), key=lambda kv: -kv[1]):
+        if tot and run >= cover * tot:
+            break
+        out.add(k)
+        run += v
+    return out
+
+
+def field_share(fields: dict[str, int], core: set[str]) -> float | None:
+    tot = sum(fields.values())
+    return None if not tot or not core else sum(v for k, v in fields.items() if k in core) / tot
 
 
 # ---------------------------------------------------------------- store
@@ -296,7 +333,10 @@ def _combine(ids: list[str], latest: dict) -> dict | None:
          "i10": max(_num(p["i10_index"]) or 0 for p in parts),
          "mean2yr": _num(parts[0]["two_yr_mean_citedness"]) if len(parts) == 1 else None,
          "institution": parts[0]["institution"], "as_of": max(p["snapshot_date"] for p in parts),
-         "split": len(parts) > 1}
+         "split": len(parts) > 1, "_fields": {}}
+    for p in parts:
+        for k, v in parse_fields(p.get("fields", "")).items():
+            m["_fields"][k] = m["_fields"].get(k, 0) + v
     return m
 
 
@@ -317,6 +357,15 @@ def page_data(cfg, lineage_path: Path, store_dir: Path) -> dict:
         d["children"] = [node(c, aid) for c in p.children]
         return d
 
+    def flag_mixed(d: dict, core: set[str]) -> None:
+        m = d.get("metrics")
+        if m is not None:
+            share = field_share(m.pop("_fields", {}), core)
+            m["field_share"] = None if share is None else round(share, 2)
+            m["mixed"] = d["relation"] != "self" and d["method"] in ("coauthor", "name") and share is not None and share < MIXED_SHARE
+        for c in d["children"] + d.get("advisors", []) + d.get("students", []):
+            flag_mixed(c, core)
+
     out = {"built": date.today().isoformat(), "authors": []}
     for au in cfg.authors:
         root = load_tree(lineage_path, au.id, au.name, au.openalex_ids, au.orcid)
@@ -325,9 +374,24 @@ def page_data(cfg, lineage_path: Path, store_dir: Path) -> dict:
         r = node(root, au.id)
         r["advisors"] = [node(c, au.id) for c in root.advisors]   # type: ignore[attr-defined]
         r["students"] = [node(c, au.id) for c in root.students]   # type: ignore[attr-defined]
+        flag_mixed(r, core_fields((r["metrics"] or {}).get("_fields", {})))
         out["authors"].append({"id": au.id, "name": au.name, "root": r})
     dates = [m["snapshot_date"] for m in latest.values()]
     out["metrics_as_of"] = max(dates) if dates else ""
+    return out
+
+
+def mixed_records(data: dict) -> list[str]:
+    """Matched people whose OpenAlex record sits mostly outside the tracked author's fields."""
+    out = []
+
+    def rec(d, aid):
+        if (d.get("metrics") or {}).get("mixed"):
+            out.append(f"{aid}: {d['name']} ({','.join(d['openalex_ids'])}, {d['metrics']['field_share']:.0%} in field)")
+        for c in d["children"] + d.get("advisors", []) + d.get("students", []):
+            rec(c, aid)
+    for a in data["authors"]:
+        rec(a["root"], a["id"])
     return out
 
 
