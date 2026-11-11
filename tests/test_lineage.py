@@ -131,13 +131,13 @@ def test_page(repo):
     pupil = next(s for s in a["students"] if s["name"] == "Dana Pupil")["metrics"]
     assert pupil["citations"] == 3000 + 3100 and pupil["split"] and pupil["h"] == max(30 % 37, 31 % 37)
     assert next(s for s in a["students"] if s["name"] == "Nobody Known")["metrics"] is None
-    # Focal core fields (2% or more of its 44 topic counts): Forestry and Ecology, not Chemistry. Eve's split
-    # record: Medicine 60 + Ecology 3 + Chemistry 1 (A40) and Forestry 40 + Ecology 3 + Chemistry 1: 46 of 108
-    # in field and 62 outside, so flagged. Pupil's records are all in field.
+    # Focal core fields (2% or more of its 44 topic counts): Forestry, Ecology and Chemistry (1 of 44). Eve's
+    # split record: Medicine 60 + Ecology 3 + Chemistry 1 (A40) and Forestry 40 + Ecology 3 + Chemistry 1:
+    # 48 of 108 in field and 60 outside, so flagged. Pupil's records are all in field.
     eve = next(s for s in a["students"] if s["name"] == "Eve F. Twin")["metrics"]
     assert eve["field_share"] == 0.44 and eve["mixed"] and not pupil["mixed"]
     assert lineage.mixed_records(d) == ["focal: Eve F. Twin (A40,A41, 44% in field)"]
-    assert lineage.core_fields({"Forestry": 40, "Ecology": 3, "Chemistry": 1}) == {"Forestry", "Ecology"}
+    assert lineage.core_fields({"Forestry": 100, "Ecology": 5, "Chemistry": 1}) == {"Forestry", "Ecology"}
     assert lineage.out_of_field({"Medicine": 40, "Forestry": 40, "Ecology": 6, "Chemistry": 2}, {"Forestry", "Ecology"}) == 42
     # A pinned id is trusted and never flagged.
     (root / "lineage.yml").write_text(TREE.replace("- name: Eve F. Twin", "- name: Eve F. Twin\n      openalex_id: A40"))
