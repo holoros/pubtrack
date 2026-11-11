@@ -57,8 +57,9 @@ def fake_get(path, params):
         return {"results": [{"id": f"https://openalex.org/{i}", "display_name": i, "works_count": 10,
                              "cited_by_count": 100 * int(i[1:]), "summary_stats": {"h_index": int(i[1:]) % 37,
                              "i10_index": 3, "2yr_mean_citedness": 1.5}, "last_known_institutions": [{"display_name": "U"}],
-                             "topics": [{"count": 40, "field": {"display_name": "Medicine" if i == "A40" else "Forestry"}},
-                                        {"count": 3, "field": {"display_name": "Ecology"}}]}
+                             "topics": [{"count": 60 if i == "A40" else 40, "field": {"display_name": "Medicine" if i == "A40" else "Forestry"}},
+                                        {"count": 3, "field": {"display_name": "Ecology"}},
+                                        {"count": 1, "field": {"display_name": "Chemistry"}}]}
                             for i in ids]}
     raise AssertionError(path)
 
@@ -130,11 +131,14 @@ def test_page(repo):
     pupil = next(s for s in a["students"] if s["name"] == "Dana Pupil")["metrics"]
     assert pupil["citations"] == 3000 + 3100 and pupil["split"] and pupil["h"] == max(30 % 37, 31 % 37)
     assert next(s for s in a["students"] if s["name"] == "Nobody Known")["metrics"] is None
-    # Focal core fields cover 90% of its topics: Forestry only (40 of 43). Eve's split record holds
-    # Medicine 40 (A40) and Forestry 40 plus Ecology 6: 40 of 86 in field, under half, so flagged.
+    # Focal core fields (2% or more of its 44 topic counts): Forestry and Ecology, not Chemistry. Eve's split
+    # record: Medicine 60 + Ecology 3 + Chemistry 1 (A40) and Forestry 40 + Ecology 3 + Chemistry 1: 46 of 108
+    # in field and 62 outside, so flagged. Pupil's records are all in field.
     eve = next(s for s in a["students"] if s["name"] == "Eve F. Twin")["metrics"]
-    assert eve["field_share"] == 0.47 and eve["mixed"] and not pupil["mixed"]
-    assert lineage.mixed_records(d) == ["focal: Eve F. Twin (A40,A41, 47% in field)"]
+    assert eve["field_share"] == 0.44 and eve["mixed"] and not pupil["mixed"]
+    assert lineage.mixed_records(d) == ["focal: Eve F. Twin (A40,A41, 44% in field)"]
+    assert lineage.core_fields({"Forestry": 40, "Ecology": 3, "Chemistry": 1}) == {"Forestry", "Ecology"}
+    assert lineage.out_of_field({"Medicine": 40, "Forestry": 40, "Ecology": 6, "Chemistry": 2}, {"Forestry", "Ecology"}) == 42
     # A pinned id is trusted and never flagged.
     (root / "lineage.yml").write_text(TREE.replace("- name: Eve F. Twin", "- name: Eve F. Twin\n      openalex_id: A40"))
     lineage.sync(cfg, root / "lineage.yml", root / "data", today=date(2026, 11, 11))

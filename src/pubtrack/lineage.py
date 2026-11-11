@@ -33,7 +33,10 @@ PEOPLE_COLS = ["author_id", "node_key", "name", "relation", "parent_key", "opena
                "shared_works", "checked_date", "spec_hash"]
 METRIC_COLS = ["snapshot_date", "openalex_id", "display_name", "works_count", "cited_by_count", "h_index",
                "i10_index", "two_yr_mean_citedness", "institution", "orcid", "fields"]
-MIXED_SHARE = 0.5     # below this share of topic counts in the tracked author's fields, the record is flagged
+# A matched record is flagged as possibly merging two people when under half of its topic counts fall in
+# the tracked author's fields AND at least MIXED_MIN_OUT counts fall outside them (small records are spared).
+MIXED_SHARE = 0.5
+MIXED_MIN_OUT = 20
 RECHECK_UNRESOLVED_DAYS = 90
 MAX_CANDIDATES = 6
 
@@ -225,15 +228,14 @@ def parse_fields(s: str) -> dict[str, int]:
     return out
 
 
-def core_fields(fields: dict[str, int], cover: float = 0.9) -> set[str]:
-    """The fields that together hold `cover` of an author's topic counts."""
-    tot, run, out = sum(fields.values()), 0, set()
-    for k, v in sorted(fields.items(), key=lambda kv: -kv[1]):
-        if tot and run >= cover * tot:
-            break
-        out.add(k)
-        run += v
-    return out
+def core_fields(fields: dict[str, int], min_share: float = 0.02) -> set[str]:
+    """Fields holding at least `min_share` of an author's topic counts."""
+    tot = sum(fields.values())
+    return {k for k, v in fields.items() if tot and v / tot >= min_share}
+
+
+def out_of_field(fields: dict[str, int], core: set[str]) -> int:
+    return sum(v for k, v in fields.items() if k not in core)
 
 
 def field_share(fields: dict[str, int], core: set[str]) -> float | None:
@@ -360,9 +362,11 @@ def page_data(cfg, lineage_path: Path, store_dir: Path) -> dict:
     def flag_mixed(d: dict, core: set[str]) -> None:
         m = d.get("metrics")
         if m is not None:
-            share = field_share(m.pop("_fields", {}), core)
+            f = m.pop("_fields", {})
+            share = field_share(f, core)
             m["field_share"] = None if share is None else round(share, 2)
-            m["mixed"] = d["relation"] != "self" and d["method"] in ("coauthor", "name") and share is not None and share < MIXED_SHARE
+            m["mixed"] = (d["relation"] != "self" and d["method"] in ("coauthor", "name") and share is not None
+                          and share < MIXED_SHARE and out_of_field(f, core) >= MIXED_MIN_OUT)
         for c in d["children"] + d.get("advisors", []) + d.get("students", []):
             flag_mixed(c, core)
 

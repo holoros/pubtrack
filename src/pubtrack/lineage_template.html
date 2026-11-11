@@ -254,7 +254,7 @@ function renderLegend() {
   document.getElementById("caption").innerHTML = `<b>Figure.</b> Academic genealogy with advisors to the left and students to the right. ${by} `
     + `Metrics are OpenAlex author records as of ${DATA.metrics_as_of || "the next refresh"} (works, citations, h and i10 index); they will differ from Google Scholar, which counts more sources. `
     + `A person is matched to OpenAlex by a pinned id, by ORCID, or by name when the candidate has published with the linked advisor or student; a split OpenAlex record sums works and citations and reports the larger part's h index, a lower bound. `
-    + `† marks a record with under half of its topics in the tracked author's fields, a sign that OpenAlex has merged two people; its numbers are likely inflated until the right id is pinned. `
+    + `† marks a record with under half of its topics (and at least 20 topic assignments) outside the tracked author's fields, a sign that OpenAlex has merged two people; its numbers are likely inflated until the right id is pinned. `
     + `Descendant citations add each person's total, so a paper shared by several descendants counts once for each.`;
 }
 
