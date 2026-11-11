@@ -172,8 +172,8 @@ function draw() {
   const x0 = d3.min(ys) - leftPad - 26, x1 = d3.max(ys) + rightPad + 26;
   const y0 = Math.min(d3.min(xs), -40) - 30, y1 = Math.max(d3.max(xs), 20) + 24;
   const W = x1 - x0, H = y1 - y0;
-  // Fit the card when that keeps text at 85% or more of its drawn size; otherwise scroll sideways.
-  const box = document.querySelector(".chart").clientWidth - 2, k = Math.max(0.85, Math.min(1, box / W));
+  // Fit the card when text stays at 70% or more of its drawn size (85% on phones); otherwise scroll sideways.
+  const box = document.querySelector(".chart").clientWidth - 2, k = Math.max(box < 700 ? 0.85 : 0.7, Math.min(1, box / W));
   const svg = d3.select("#tree").attr("viewBox", [x0, y0, W, H]).attr("width", W).attr("height", H)
     .style("width", (W * k) + "px").style("height", (H * k) + "px").style("display", "block");
   svg.selectAll("*").remove();
@@ -217,7 +217,7 @@ function draw() {
   addName(other); addMetric(other);
 
   const ch = document.querySelector(".chart");
-  if (W * k > box) ch.scrollLeft = Math.max(0, (-x0) * k - box / 2);   // narrow screens open on the tracked author
+  ch.scrollLeft = W * k > box ? Math.max(0, (-x0) * k - box / 2) : 0;   // an overflowing tree opens on the tracked author
   renderStats(A); renderLegend(); renderTable(A);
 }
 
