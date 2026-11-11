@@ -1,0 +1,29 @@
+author_id,node_key,name,relation,parent_key,openalex_ids,method,shared_works,checked_date,spec_hash
+weiskittel,weiskittel/a:douglas-a-maguire,Douglas A. Maguire,advisor,weiskittel,A5008427474,coauthor,10,2026-11-11,b39aa2000a
+weiskittel,weiskittel/a:douglas-a-maguire/a:david-w-hann,David W. Hann,advisor,weiskittel/a:douglas-a-maguire,A5014938153,coauthor,9,2026-11-11,3b3ec61855
+weiskittel,weiskittel/a:douglas-a-maguire/a:david-w-hann/a:b-bruce-bare,B. Bruce Bare,advisor,weiskittel/a:douglas-a-maguire/a:david-w-hann,A5083380821,coauthor,4,2026-11-11,778cfc5359
+weiskittel,weiskittel/a:douglas-a-maguire/a:richard-t-t-forman,Richard T. T. Forman,advisor,weiskittel/a:douglas-a-maguire,A5089596136,coauthor,1,2026-11-11,fad52d5562
+weiskittel,weiskittel/a:douglas-a-maguire/a:richard-t-t-forman/a:roy-l-taylor,Roy L. Taylor,advisor,weiskittel/a:douglas-a-maguire/a:richard-t-t-forman,A5011764238,name,0,2026-11-11,92fd6ebf6c
+weiskittel,weiskittel/s:aaron-meneghini,Aaron Meneghini,student,weiskittel,A5039937796,coauthor,2,2026-11-11,0b463ede99
+weiskittel,weiskittel/s:alyssa-soucy,Alyssa Soucy,student,weiskittel,A5013894176,coauthor,5,2026-11-11,0a333b9675
+weiskittel,weiskittel/s:arun-k-bose,Arun K. Bose,student,weiskittel,A5048419864,coauthor,7,2026-11-11,4eebe8a654
+weiskittel,weiskittel/s:baburam-rijal,Baburam Rijal,student,weiskittel,A5041714217,coauthor,2,2026-11-11,2d821d4c87
+weiskittel,weiskittel/s:cen-chen,Cen Chen,student,weiskittel,A5100622586,coauthor,5,2026-11-11,133243f39a
+weiskittel,weiskittel/s:emily-j-silver,Emily J. Silver,student,weiskittel,A5021743114,coauthor,3,2026-11-11,dc085a2cb4
+weiskittel,weiskittel/s:jereme-frank,Jereme Frank,student,weiskittel,"A5048500579,A5048787894",coauthor,12,2026-11-11,1f5d10333f
+weiskittel,weiskittel/s:jianheng-zhao,Jianheng Zhao,student,weiskittel,A5004142371,coauthor,13,2026-11-11,b75fe7aa49
+weiskittel,weiskittel/s:joshua-j-puhlick,Joshua J. Puhlick,student,weiskittel,A5080567657,coauthor,12,2026-11-11,4812ae019f
+weiskittel,weiskittel/s:maren-granstrom,Maren Granstrom,student,weiskittel,A5029273802,coauthor,1,2026-11-11,9fded7fc40
+weiskittel,weiskittel/s:mark-castle,Mark Castle,student,weiskittel,A5070465886,coauthor,5,2026-11-11,a48b60050e
+weiskittel,weiskittel/s:matthew-b-russell,Matthew B. Russell,student,weiskittel,A5008534219,coauthor,14,2026-11-11,4e822ace74
+weiskittel,weiskittel/s:matthew-b-russell/s:brian-j-clough,Brian J. Clough,student,weiskittel/s:matthew-b-russell,A5032944087,coauthor,7,2026-11-11,e5a3923d18
+weiskittel,weiskittel/s:matthew-b-russell/s:ella-r-gray,Ella R. Gray,student,weiskittel/s:matthew-b-russell,A5042375477,coauthor,5,2026-11-11,4855e43dd4
+weiskittel,weiskittel/s:matthew-b-russell/s:lucia-a-fitts,Lucia A. Fitts,student,weiskittel/s:matthew-b-russell,A5070622186,coauthor,4,2026-11-11,ed59a28aa3
+weiskittel,weiskittel/s:matthew-b-russell/s:marcella-a-windmuller-campione,Marcella A. Windmuller-Campione,student,weiskittel/s:matthew-b-russell,A5019169531,coauthor,23,2026-11-11,692182d7e7
+weiskittel,weiskittel/s:matthew-b-russell/s:michael-m-bahe,Michael M. Bahe,student,weiskittel/s:matthew-b-russell,A5034182530,coauthor,1,2026-11-11,1e913bce00
+weiskittel,weiskittel/s:matthew-b-russell/s:ram-k-deo,Ram K. Deo,student,weiskittel/s:matthew-b-russell,A5026864044,coauthor,4,2026-11-11,10b7e6b354
+weiskittel,weiskittel/s:matthew-b-russell/s:sawyer-s-scherer,Sawyer S. Scherer,student,weiskittel/s:matthew-b-russell,A5077229551,coauthor,2,2026-11-11,6981f7c2c2
+weiskittel,weiskittel/s:matthew-b-russell/s:stephanie-r-patton,Stephanie R. Patton,student,weiskittel/s:matthew-b-russell,A5060492016,coauthor,5,2026-11-11,771867601b
+weiskittel,weiskittel/s:matthew-b-russell/s:trevor-k-host,Trevor K. Host,student,weiskittel/s:matthew-b-russell,A5079806805,coauthor,1,2026-11-11,49f63520db
+weiskittel,weiskittel/s:rei-hayashi,Rei Hayashi,student,weiskittel,A5068181970,coauthor,3,2026-11-11,a1eb0ba4bf
+weiskittel,weiskittel/s:rongxia-li,Rongxia Li,student,weiskittel,"A5036290087,A5002751216",coauthor,3,2026-11-11,8472c340d5
