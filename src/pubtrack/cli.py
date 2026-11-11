@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from . import config as cfgmod
-from . import export, openalex, overrides, store
+from . import export, lineage, openalex, overrides, store
 from .db import latest_run
 from .sync import plan, serpapi_used_this_month, sync_all
 
@@ -238,6 +238,44 @@ def cmd_install_timer(a):
         subprocess.run(["systemctl", "--user", *cmd], check=False)
 
 
+def _lineage_path(cfg, a) -> Path:
+    if getattr(a, "lineage", None):
+        return Path(a.lineage).resolve()
+    return (cfg.path.parent if cfg.path else Path.cwd()) / "lineage.yml"
+
+
+def cmd_lineage(a):
+    """Resolve the people in lineage.yml to OpenAlex, snapshot their metrics, or build the page."""
+    cfg = _cfg(a)
+    path, sdir = _lineage_path(cfg, a), _store(cfg, a)
+    if a.action == "sync":
+        try:
+            r = lineage.sync(cfg, path, sdir, force=a.force)
+        except openalex.OpenAlexError as e:
+            print(f"lineage sync failed: {e}")
+            if a.failed_flag:
+                with open(a.failed_flag, "a") as f:
+                    f.write("lineage openalex\n")
+            return
+        lines = [f"lineage: {r['authors']} author(s), {r['resolved']} people matched, {r['rechecked']} looked up, "
+                 f"{r['metric_rows']} OpenAlex records snapshot"]
+        if r["name_only"]:
+            lines.append("matched by name only (pin openalex_id to confirm): " + "; ".join(r["name_only"]))
+        if r["unresolved"]:
+            lines.append("no confident match (add openalex_id or orcid): " + "; ".join(r["unresolved"]))
+        print("\n".join(lines))
+        if a.summary:
+            with open(a.summary, "a") as f:
+                f.write("\n### Lineage\n\n" + "\n\n".join(lines) + "\n")
+    elif a.action == "build":
+        out = lineage.build_page(cfg, path, sdir, Path(a.out))
+        print(f"lineage page: {out}")
+    else:  # status
+        for r in lineage._read(sdir / "lineage_people.csv"):
+            if a.verbose or r["method"] in ("unresolved", "name"):
+                print(f"{r['author_id']:<12} {r['method']:<10} {r['openalex_ids'] or '-':<26} {r['name']}  ({r['relation']})")
+
+
 def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     p = argparse.ArgumentParser(prog="pubtrack", description=__doc__)
@@ -310,6 +348,17 @@ def main(argv=None):
     s = sub.add_parser("dashboard", help="launch the Shiny app locally")
     s.add_argument("--port", type=int, default=7461)
     s.set_defaults(fn=cmd_dashboard)
+
+    s = sub.add_parser("lineage", help="advisor and student tree with OpenAlex metrics (lineage.yml)")
+    s.add_argument("action", choices=["sync", "build", "status"])
+    s.add_argument("--lineage", help="path to lineage.yml (default: next to authors.yml)")
+    s.add_argument("--store")
+    s.add_argument("--out", default="site/lineage", help="build: output folder for index.html")
+    s.add_argument("--force", action="store_true", help="sync: look everyone up again")
+    s.add_argument("-v", "--verbose", action="store_true", help="status: list everyone, not just the gaps")
+    s.add_argument("--summary", help="sync: append a markdown summary to this file")
+    s.add_argument("--failed-flag", help="sync: note a failed OpenAlex fetch here (CI)")
+    s.set_defaults(fn=cmd_lineage)
 
     sub.add_parser("install-timer", help="weekly local Scholar scrape that pushes to GitHub").set_defaults(fn=cmd_install_timer)
 

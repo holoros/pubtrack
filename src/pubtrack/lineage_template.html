@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Academic Lineage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+  /* Weiskittel Lab design system tokens, CRSF house register (as in app/R/00_theme.R) */
+  :root {
+    --ink: #14201a; --ink-muted: #4a5750; --ink-faint: #5f6b65;
+    --surface: #ffffff; --sunken: #f4f6f4; --rule: #d3dcd6;
+    --green: #134a31; --sky: #79bde9; --pale: #c8e2f6;
+    --advisor: #d55e00; --advisor-2: #e69f00; --student: #0072b2; --student-2: #56b4e9; --student-3: #009e73;
+    --muted-node: #b3bbb6;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink);
+         font-family: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif; font-size: 15px; }
+  header { background: var(--green); color: #fff; padding: 14px 16px; }
+  header .wrap { max-width: 1280px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; }
+  header h1 { font-size: 20px; margin: 0; font-weight: 700; }
+  header a { color: var(--pale); font-size: 14px; }
+  main { max-width: 1280px; margin: 0 auto; padding: 14px 16px 40px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; margin: 4px 0 12px; }
+  .controls label { font-size: 13px; color: var(--ink-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; margin-right: 6px; }
+  select, button { font: inherit; font-size: 14px; color: var(--ink); background: #fff; border: 1px solid var(--rule);
+                   border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--green); }
+  .seg { display: inline-flex; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--rule); }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--green); color: #fff; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .stat { background: var(--sunken); border-left: 4px solid var(--student); border-radius: 6px; padding: 8px 12px; }
+  .stat.adv { border-left-color: var(--advisor); } .stat.gs { border-left-color: var(--student-2); } .stat.self { border-left-color: var(--green); }
+  .stat .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 13px; color: var(--ink-muted); }
+  .chart { border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; background: #fff; }
+  svg text { font-family: "Source Sans 3", "Source Sans Pro", system-ui, sans-serif; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--ink-muted); margin: 10px 2px 0; align-items: center; }
+  .legend span.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .legend span.ring { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 2px solid var(--student); }
+  .legend span.dash { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 2px dashed var(--student); }
+  .caption { font-size: 13px; color: var(--ink-faint); margin: 8px 2px 18px; max-width: 980px; line-height: 1.45; }
+  .caption b { color: var(--ink); }
+  #tip { position: fixed; pointer-events: none; background: #fff; border: 1px solid var(--rule); border-radius: 8px;
+         padding: 9px 11px; font-size: 13px; line-height: 1.4; box-shadow: 0 4px 14px rgba(20,32,26,.12); max-width: 300px;
+         opacity: 0; transition: opacity .12s; z-index: 10; }
+  #tip .n { font-weight: 700; font-size: 14px; }
+  #tip .r { color: var(--ink-muted); }
+  #tip table { border-collapse: collapse; margin-top: 4px; }
+  #tip td { padding: 1px 10px 1px 0; font-variant-numeric: tabular-nums; }
+  #tip td:first-child { color: var(--ink-muted); }
+  #tip .warn { color: #8a5a00; margin-top: 4px; }
+  h2 { font-size: 16px; margin: 22px 0 8px; }
+  table.people { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.people caption { caption-side: top; text-align: left; font-size: 13px; color: var(--ink-faint); padding-bottom: 6px; }
+  table.people th, table.people td { text-align: center; vertical-align: middle; padding: 5px 8px; }
+  table.people th { font-weight: 700; border-top: 1.5px solid var(--ink); border-bottom: 1px solid var(--ink); cursor: pointer; white-space: nowrap; }
+  table.people th[aria-sort="ascending"]::after { content: " \25B4"; } table.people th[aria-sort="descending"]::after { content: " \25BE"; }
+  table.people tbody tr:last-child td { border-bottom: 1.5px solid var(--ink); }
+  table.people td:first-child, table.people th:first-child { text-align: left; }
+  table.people td.num { font-variant-numeric: tabular-nums; }
+  table.people tr:hover td { background: var(--sunken); }
+  .pill { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+  .tablewrap { overflow-x: auto; }
+  @media (max-width: 640px) { header h1 { font-size: 17px; } .stat .v { font-size: 19px; } }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1 id="title">Academic lineage</h1>
+  <a href="../">Dashboard</a><a href="../reports/">Reports</a>
+  <a href="https://github.com/holoros/pubtrack/blob/main/lineage.yml" target="_blank" rel="noopener">Edit the tree</a>
+</div></header>
+<main>
+  <div class="controls">
+    <span id="authorPick" hidden><label for="author">Author</label><select id="author"></select></span>
+    <span><label>Node size</label><span class="seg" id="sizeBy">
+      <button data-v="h" aria-pressed="true">h index</button><button data-v="citations">Citations</button><button data-v="none">Uniform</button></span></span>
+    <span><label>Labels</label><span class="seg" id="labels">
+      <button data-v="metrics" aria-pressed="true">Name + metrics</button><button data-v="name">Name only</button></span></span>
+    <span><button id="expand">Expand all</button> <button id="svgBtn">SVG</button> <button id="pngBtn">PNG</button></span>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="chart"><svg id="tree" role="img" aria-label="Academic genealogy tree"></svg></div>
+  <div class="legend" id="legend"></div>
+  <p class="caption" id="caption"></p>
+  <h2>Everyone in the tree</h2>
+  <div class="tablewrap"><table class="people" id="people"></table></div>
+</main>
+<div id="tip" role="tooltip"></div>
+<script>
+const DATA = /*__LINEAGE_DATA__*/null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C = { ink: css("--ink"), muted: css("--ink-muted"), faint: css("--ink-faint"), rule: css("--rule"), green: css("--green"),
+            adv: [css("--advisor"), css("--advisor-2")], stu: [css("--student"), css("--student-2"), css("--student-3")], off: css("--muted-node") };
+const fmt = d3.format(","), fmtK = v => v >= 10000 ? d3.format(".3~s")(v).replace("k", "k") : fmt(v);
+const state = { author: 0, sizeBy: "h", labels: "metrics" };
+const collapsed = new Set();
+
+function genColor(d) {
+  if (d.data.relation === "self") return C.green;
+  const g = d.depth - 1;
+  return d.data.relation === "advisor" ? C.adv[Math.min(g, 1)] : C.stu[Math.min(g, 2)];
+}
+function relLabel(d) {
+  if (d.data.relation === "self") return "Tracked author";
+  const n = d.depth;
+  if (d.data.relation === "advisor") return n === 1 ? "Advisor" : (n === 2 ? "Grand-advisor" :  `${"Great-".repeat(n - 2)}grand-advisor`);
+  return n === 1 ? "Student" : (n === 2 ? "Grand-student" : `${"Great-".repeat(n - 2)}grand-student`);
+}
+function metricText(m) { return m ? `h ${m.h} · ${fmtK(m.citations)} cit.` : "no OpenAlex match"; }
+
+// Every node object keeps the same identity across redraws, so collapse state is keyed by node key.
+function hierarchy(root, side) {
+  const kids = n => n === root ? root[side] : n.children;
+  return d3.hierarchy(root, n => { const k = kids(n); return k && k.length && !collapsed.has(n.key) ? k : null; });
+}
+
+const measure = (() => { const c = document.createElement("canvas").getContext("2d");
+  return (t, w, s) => { c.font = `${w} ${s}px "Source Sans 3", "Source Sans Pro", sans-serif`; return c.measureText(t).width; }; })();
+function labelWidth(d) {
+  if (d.data.relation === "self") return 0;
+  let w = measure(d.data.name, 400, 13);
+  if (state.labels === "metrics") w += 6 + measure(metricText(d.data.metrics), 400, 11.5);
+  return w;
+}
+
+function radius(d, scale) {
+  if (state.sizeBy === "none") return d.data.relation === "self" ? 6 : 3.6;
+  const m = d.data.metrics; if (!m) return 2.8;
+  return scale(state.sizeBy === "h" ? m.h : m.citations);
+}
+
+function layoutSide(h, sign, rowH) {
+  d3.tree().nodeSize([rowH, 1]).separation((a, b) => a.parent === b.parent ? 1 : 1.25)(h);
+  const maxDepth = d3.max(h.descendants(), d => d.depth);
+  const off = [0];
+  for (let k = 1; k <= maxDepth; k++) {
+    const prev = h.descendants().filter(d => d.depth === k - 1);
+    const gap = k === 1 ? 120 : d3.max(prev, labelWidth) + 70;
+    off[k] = off[k - 1] + gap;
+  }
+  h.each(d => { d.py = sign * off[d.depth]; d.px = d.x; });
+  return h;
+}
+
+function hasHidden(d) {
+  const raw = d.data.relation === "self" ? [] : d.data.children;
+  return d.data.more || (raw && raw.length && collapsed.has(d.data.key));
+}
+
+function draw() {
+  const A = DATA.authors[state.author], root = A.root;
+  document.getElementById("title").textContent = `Academic lineage of ${A.name}`;
+  const rowH = state.labels === "metrics" ? 17 : 15;
+  const L = layoutSide(hierarchy(root, "advisors"), -1, rowH * 1.6);
+  const R = layoutSide(hierarchy(root, "students"), 1, rowH);
+  const nodes = [...R.descendants(), ...L.descendants().filter(d => d.depth > 0)];
+  const links = [...R.links(), ...L.links()];
+  const all = nodes.map(d => d.data.metrics).filter(Boolean);
+  const vmax = d3.max(all, m => state.sizeBy === "h" ? m.h : m.citations) || 1;
+  const scale = d3.scaleSqrt().domain([0, vmax]).range([2.4, 10]);
+
+  const xs = nodes.map(d => d.px), ys = nodes.map(d => d.py);
+  const leftPad = d3.max(L.descendants(), d => d.depth ? labelWidth(d) : 0) || 0;
+  const rightPad = d3.max(R.descendants(), d => d.depth ? labelWidth(d) : 0) || 0;
+  const x0 = d3.min(ys) - leftPad - 26, x1 = d3.max(ys) + rightPad + 26;
+  const y0 = Math.min(d3.min(xs), -40) - 30, y1 = Math.max(d3.max(xs), 20) + 24;
+  const W = x1 - x0, H = y1 - y0;
+  // Fit the card when that keeps text at 85% or more of its drawn size; otherwise scroll sideways.
+  const box = document.querySelector(".chart").clientWidth - 2, k = Math.max(0.85, Math.min(1, box / W));
+  const svg = d3.select("#tree").attr("viewBox", [x0, y0, W, H]).attr("width", W).attr("height", H)
+    .style("width", (W * k) + "px").style("height", (H * k) + "px").style("display", "block");
+  svg.selectAll("*").remove();
+  svg.append("rect").attr("x", x0).attr("y", y0).attr("width", W).attr("height", H).attr("fill", "#fff");
+
+  const link = d3.linkHorizontal().x(d => d.py).y(d => d.px);
+  svg.append("g").attr("fill", "none").attr("stroke-width", 1.1).selectAll("path").data(links).join("path")
+    .attr("d", link).attr("stroke", d => genColor(d.target)).attr("stroke-opacity", 0.38);
+
+  const g = svg.append("g").selectAll("g").data(nodes, d => d.data.key).join("g")
+    .attr("transform", d => `translate(${d.py},${d.px})`)
+    .style("cursor", d => (d.data.children && d.data.children.length) ? "pointer" : "default")
+    .on("click", (e, d) => {
+      if (d.data.relation === "self" || !(d.data.children && d.data.children.length)) return;
+      collapsed.has(d.data.key) ? collapsed.delete(d.data.key) : collapsed.add(d.data.key); draw();
+    })
+    .on("mouseenter", showTip).on("mousemove", moveTip).on("mouseleave", hideTip);
+
+  g.append("circle").attr("r", d => radius(d, scale))
+    .attr("fill", d => d.data.relation === "self" ? C.green : (hasHidden(d) ? "#fff" : (d.data.metrics ? genColor(d) : C.off)))
+    .attr("stroke", d => d.data.metrics || d.data.relation === "self" ? genColor(d) : C.off)
+    .attr("stroke-width", d => hasHidden(d) ? 1.8 : 1)
+    .attr("stroke-dasharray", d => d.data.method === "name" ? "2,1.6" : null);
+
+  // Labels: advisors to the left of their node, students to the right, the tracked author above.
+  const lab = g.append("text").attr("dy", "0.33em").attr("font-size", 13).attr("fill", C.ink)
+    .attr("text-anchor", d => d.data.relation === "advisor" ? "end" : "start")
+    .attr("x", d => (d.data.relation === "advisor" ? -1 : 1) * (radius(d, scale) + 5))
+    .attr("paint-order", "stroke").attr("stroke", "#fff").attr("stroke-width", 3).attr("stroke-linejoin", "round");
+  lab.filter(d => d.data.relation === "self")
+    .attr("text-anchor", "middle").attr("x", 0).attr("y", -radius(nodes[0], scale) - (state.labels === "metrics" && root.metrics ? 26 : 10)).attr("dy", 0)
+    .attr("font-size", 15).attr("font-weight", 700).attr("fill", C.green).text(d => d.data.name);
+  lab.filter(d => d.data.relation === "self" && state.labels === "metrics" && d.data.metrics).append("tspan")
+    .attr("x", 0).attr("dy", "1.15em").attr("font-size", 12).attr("font-weight", 400).attr("fill", C.muted)
+    .text(d => metricText(d.data.metrics));
+  const other = lab.filter(d => d.data.relation !== "self");
+  const addName = sel => sel.append("tspan").attr("fill", d => d.data.metrics ? C.ink : C.muted).text(d => d.data.name);
+  const addMetric = sel => sel.filter(() => state.labels === "metrics").append("tspan")
+    .attr("font-size", 11.5).attr("fill", C.faint).attr("dx", 6).text(d => (d.data.method === "name" ? "≈ " : "") + metricText(d.data.metrics));
+  // For advisors (end anchored) the metric still reads after the name; tspans keep source order either way.
+  addName(other); addMetric(other);
+
+  const ch = document.querySelector(".chart");
+  if (W * k > box) ch.scrollLeft = Math.max(0, (-x0) * k - box / 2);   // narrow screens open on the tracked author
+  renderStats(A); renderLegend(); renderTable(A);
+}
+
+function walk(n, rel, depth, out) { (n.children || []).forEach(c => { out.push({ n: c, rel, depth }); walk(c, rel, depth + 1, out); }); }
+function flatten(root) {
+  const out = [{ n: root, rel: "self", depth: 0 }];
+  root.advisors.forEach(c => { out.push({ n: c, rel: "advisor", depth: 1 }); walk(c, "advisor", 2, out); });
+  root.students.forEach(c => { out.push({ n: c, rel: "student", depth: 1 }); walk(c, "student", 2, out); });
+  return out;
+}
+
+function renderStats(A) {
+  const f = flatten(A.root);
+  const stu = f.filter(x => x.rel === "student" && x.depth === 1), gs = f.filter(x => x.rel === "student" && x.depth >= 2);
+  const adv = f.filter(x => x.rel === "advisor");
+  const desc = f.filter(x => x.rel === "student" && x.n.metrics);
+  const med = arr => arr.length ? d3.median(arr) : null;
+  const items = [
+    ["self", A.root.metrics ? `${A.root.metrics.h}` : "n/a", "h index, OpenAlex"],
+    ["", stu.length, `students (${stu.filter(x => x.n.metrics).length} matched)`],
+    ["gs", gs.length, "students of students listed"],
+    ["", med(stu.filter(x => x.n.metrics).map(x => x.n.metrics.h)) ?? "n/a", "median student h index"],
+    ["", desc.length ? fmt(d3.sum(desc, x => x.n.metrics.citations)) : "n/a", "citations held by descendants"],
+    ["adv", d3.max(adv, x => x.depth) || 0, "advisor generations shown"],
+  ];
+  document.getElementById("stats").innerHTML = items.map(([c, v, k]) => `<div class="stat ${c}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
+}
+
+function renderLegend() {
+  const it = [[C.green, "Tracked author"], [C.adv[0], "Advisor"], [C.adv[1], "Earlier advisors"], [C.stu[0], "Student"], [C.stu[1], "Grand-student"], [C.off, "No OpenAlex match"]];
+  document.getElementById("legend").innerHTML = it.map(([c, t]) => `<span><span class="dot" style="background:${c}"></span>${t}</span>`).join("")
+    + `<span><span class="ring"></span>More relatives not shown (click a node to fold or unfold)</span><span><span class="dash"></span>≈ matched by name only</span>`;
+  const by = state.sizeBy === "none" ? "Nodes are drawn at one size." : `Node area scales with each person's OpenAlex ${state.sizeBy === "h" ? "h index" : "total citations"}.`;
+  document.getElementById("caption").innerHTML = `<b>Figure.</b> Academic genealogy with advisors to the left and students to the right. ${by} `
+    + `Metrics are OpenAlex author records as of ${DATA.metrics_as_of || "the next refresh"} (works, citations, h and i10 index); they will differ from Google Scholar, which counts more sources. `
+    + `A person is matched to OpenAlex by a pinned id, by ORCID, or by name when the candidate has published with the linked advisor or student; a split OpenAlex record sums works and citations and reports the larger part's h index, a lower bound. `
+    + `Descendant citations add each person's total, so a paper shared by several descendants counts once for each.`;
+}
+
+const tip = document.getElementById("tip");
+function showTip(e, d) {
+  const n = d.data, m = n.metrics;
+  const meta = [n.degree, n.year, n.institution].filter(Boolean).join(", ");
+  const methodTxt = { pinned: "OpenAlex id pinned in lineage.yml", orcid: "matched by ORCID", coauthor: "matched by name and shared work",
+                      name: "matched by name only, not verified", unresolved: "no confident OpenAlex match", pending: "not yet looked up", tracked: "tracked author" }[n.method] || n.method;
+  let h = `<div class="n">${n.name}</div><div class="r">${relLabel(d)}${meta ? " · " + meta : ""}</div>`;
+  if (m) h += `<table><tr><td>h index</td><td>${m.h}</td></tr><tr><td>i10 index</td><td>${m.i10}</td></tr><tr><td>Citations</td><td>${fmt(m.citations)}</td></tr>`
+    + `<tr><td>Works</td><td>${fmt(m.works)}</td></tr>${m.mean2yr != null ? `<tr><td>2 yr mean citedness</td><td>${m.mean2yr}</td></tr>` : ""}`
+    + `${m.institution ? `<tr><td>Last institution</td><td>${m.institution}</td></tr>` : ""}</table>`;
+  h += `<div class="r" style="margin-top:4px">${methodTxt}${m && m.split ? "; split record combined" : ""}</div>`;
+  if (n.method === "name") h += `<div class="warn">Pin openalex_id in lineage.yml to confirm.</div>`;
+  if (n.note) h += `<div class="r" style="margin-top:4px">${n.note}</div>`;
+  tip.innerHTML = h; tip.style.opacity = 1; moveTip(e);
+}
+function moveTip(e) { const w = tip.offsetWidth, hgt = tip.offsetHeight;
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - w - 8) + "px"; tip.style.top = Math.min(e.clientY + 14, innerHeight - hgt - 8) + "px"; }
+function hideTip() { tip.style.opacity = 0; }
+
+let sortCol = "citations", sortDir = -1;
+function renderTable(A) {
+  const rows = flatten(A.root).map(x => {
+    const d = { data: Object.assign({}, x.n, { relation: x.rel }), depth: x.depth };
+    return { name: x.n.name, rel: relLabel(d), color: genColor(d), gen: x.rel === "advisor" ? -x.depth : x.depth, inst: (x.n.metrics && x.n.metrics.institution) || x.n.institution || "",
+             works: x.n.metrics ? x.n.metrics.works : null, citations: x.n.metrics ? x.n.metrics.citations : null,
+             h: x.n.metrics ? x.n.metrics.h : null, i10: x.n.metrics ? x.n.metrics.i10 : null,
+             oa: x.n.openalex_ids || [], method: x.n.method };
+  });
+  const cols = [["name", "Name"], ["gen", "Relation"], ["inst", "Last institution"], ["works", "Works"], ["citations", "Citations"], ["h", "h index"], ["i10", "i10 index"]];
+  rows.sort((a, b) => { const va = a[sortCol], vb = b[sortCol]; if (va == null) return 1; if (vb == null) return -1;
+    return (typeof va === "string" ? va.localeCompare(vb) : va - vb) * sortDir; });
+  const t = document.getElementById("people");
+  t.innerHTML = `<caption><b>Table.</b> OpenAlex metrics for every person in the tree. Select a column heading to sort; names link to the OpenAlex record.</caption><thead><tr>`
+    + cols.map(([k, l]) => `<th data-k="${k}" ${k === sortCol ? `aria-sort="${sortDir > 0 ? "ascending" : "descending"}"` : ""}>${l}</th>`).join("") + `</tr></thead><tbody>`
+    + rows.map(r => `<tr><td><span class="pill" style="background:${r.color}"></span>${r.oa.length ? `<a href="https://openalex.org/authors/${r.oa[0]}" target="_blank" rel="noopener">${r.name}</a>` : r.name}${r.method === "name" ? " ≈" : ""}</td>`
+      + `<td>${r.rel}</td><td>${r.inst}</td>` + ["works", "citations", "h", "i10"].map(k => `<td class="num">${r[k] == null ? "n/a" : fmt(r[k])}</td>`).join("") + `</tr>`).join("") + `</tbody>`;
+  t.querySelectorAll("th").forEach(th => th.onclick = () => { const k = th.dataset.k; sortDir = k === sortCol ? -sortDir : (k === "name" || k === "inst" ? 1 : -1); sortCol = k; renderTable(A); });
+}
+
+function seg(id, key) {
+  document.querySelectorAll(`#${id} button`).forEach(b => b.onclick = () => {
+    document.querySelectorAll(`#${id} button`).forEach(x => x.setAttribute("aria-pressed", x === b)); state[key] = b.dataset.v; draw(); });
+}
+
+function download(name, url) { const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+function svgString() { const s = document.getElementById("tree").cloneNode(true); s.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  s.removeAttribute("style"); return new XMLSerializer().serializeToString(s); }
+function fileStem() { return `lineage_${DATA.authors[state.author].id}_${DATA.metrics_as_of || DATA.built}`; }
+
+if (!DATA || !DATA.authors.length) {
+  document.querySelector("main").innerHTML = "<p>No lineage yet. Add advisors and students to lineage.yml and commit.</p>";
+} else {
+  if (DATA.authors.length > 1) {
+    const s = document.getElementById("author"); document.getElementById("authorPick").hidden = false;
+    s.innerHTML = DATA.authors.map((a, i) => `<option value="${i}">${a.name}</option>`).join("");
+    s.onchange = () => { state.author = +s.value; collapsed.clear(); draw(); };
+  }
+  seg("sizeBy", "sizeBy"); seg("labels", "labels");
+  document.getElementById("expand").onclick = () => { collapsed.clear(); draw(); };
+  document.getElementById("svgBtn").onclick = () => download(fileStem() + ".svg", URL.createObjectURL(new Blob([svgString()], { type: "image/svg+xml" })));
+  document.getElementById("pngBtn").onclick = () => {
+    const svg = document.getElementById("tree"), W = +svg.getAttribute("width"), H = +svg.getAttribute("height"), k = 3;
+    const img = new Image(); img.onload = () => { const c = document.createElement("canvas"); c.width = W * k; c.height = H * k;
+      const x = c.getContext("2d"); x.fillStyle = "#fff"; x.fillRect(0, 0, c.width, c.height); x.drawImage(img, 0, 0, c.width, c.height);
+      download(fileStem() + ".png", c.toDataURL("image/png")); };
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgString());
+  };
+  draw();
+  let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(draw, 150); });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+# Academic lineage for tracked authors: advisors to the left, students to the right.
+# Edit on GitHub and commit; the refresh workflow resolves each person to OpenAlex and redraws
+# https://holoros.github.io/pubtrack/lineage/ with their citation metrics.
+#
+# Top level keys are author ids from authors.yml. Under each:
+#   advisors   list of people; each may have its own advisors (recursive, going back in time)
+#   students   list of people; each may have its own students (recursive, going forward)
+# A person is a plain name string or a mapping with any of:
+#   name         required
+#   openalex_id  pin the OpenAlex record (comma separate a split record); wins over everything else
+#   orcid        exact OpenAlex lookup when no id is pinned
+#   degree       PhD, MS, postdoc ...      year   completion year      institution
+#   more         true when relatives exist beyond those listed (drawn as an open ring)
+#   note         free text, shown on hover
+# Without openalex_id or orcid a person is matched by name, and accepted only when the candidate has
+# coauthored with the linked advisor or student in OpenAlex. A unique exact name match with no shared
+# work is kept but marked unverified; anything else stays unresolved. `pubtrack lineage status` lists both.
+#
+# Seeded 11 November 2026 from the genealogy graphic Aaron supplied (advisor lines through Douglas A.
+# Maguire; students and Matthew B. Russell's students). Degrees and years were not in the graphic.
+
+weiskittel:
+  advisors:
+    - name: Douglas A. Maguire
+      degree: PhD
+      institution: Oregon State University
+      advisors:
+        - name: David W. Hann
+          advisors:
+            - name: B. Bruce Bare
+              more: true
+        - name: Richard T. T. Forman
+          advisors:
+            - Roy L. Taylor
+  students:
+    - Aaron Meneghini
+    - Alyssa Soucy
+    - Arun K. Bose
+    - Baburam Rijal
+    - Cen Chen
+    - Emily J. Silver
+    - Jereme Frank
+    - Jianheng Zhao
+    - Joshua J. Puhlick
+    - Maren Granstrom
+    - Mark Castle
+    - name: Matthew B. Russell
+      students:
+        - Brian J. Clough
+        - Ella R. Gray
+        - Lucia A. Fitts
+        - name: Marcella A. Windmuller-Campione
+          more: true
+        # The source graphic also lists "Matthew Russell" as a student of Matthew B. Russell, which reads
+        # as a duplicate record of Russell himself; left out until confirmed.
+        - Michael M. Bahe
+        - Ram K. Deo
+        - Sawyer S. Scherer
+        - Stephanie R. Patton
+        - Trevor K. Host
+    - Rei Hayashi
+    - Rongxia Li

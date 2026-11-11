@@ -159,6 +159,9 @@ ui <- page_navbar(
     card(card_header("Methods"), card_body(HTML(methods_html(B$nsim))))
   ),
   nav_spacer(),
+  # Advisor and student tree with OpenAlex metrics, built from lineage.yml beside the app (site/lineage/).
+  nav_item(tags$a(class = "nav-link", href = paste0(B$site_url %||% "", "lineage/"), target = "_blank",
+                  bs_icon("diagram-3"), " Lineage")),
   nav_item(tags$span(class = "navbar-text small", style = "color:#c8e2f6", textOutput("asof", inline = TRUE)))
 )
 

@@ -3,7 +3,8 @@
 Google Scholar and OpenAlex bibliometrics for a set of tracked authors: weekly snapshots, author comparison, per paper and per author citation forecasts with prediction intervals, printable impact reports, and copy ready impact statements. Everything refreshes itself on GitHub and publishes as a browser app on GitHub Pages.
 
 **Dashboard:** https://holoros.github.io/pubtrack/  
-**Static reports:** https://holoros.github.io/pubtrack/reports/
+**Static reports:** https://holoros.github.io/pubtrack/reports/  
+**Lineage:** https://holoros.github.io/pubtrack/lineage/
 
 ## How it works
 
@@ -50,6 +51,18 @@ pubtrack resolve              # fills openalex_id from ORCID for anyone missing 
 
 The Methods card in the app documents every index and the forecast model. In short: each paper's rate comes from a Poisson log linear fit to its last six complete years of OpenAlex counts with parameter and overdispersion uncertainty, or a Gamma posterior rate when data are thin; rates convert to Scholar units per paper; 2,000 simulations give the intervals. Only existing papers are projected, so totals are conservative for active authors.
 
+## Academic lineage
+
+`lineage.yml` holds each tracked author's advisors (going back) and students (going forward), nested to any depth. The workflow matches every person to OpenAlex and draws the tree at `/lineage/`: advisors to the left, students to the right, node area by h index or citations, each name followed by its h index and citations, a sortable table of works, citations, h and i10 for everyone, and SVG or PNG export. Clicking a node folds or unfolds its branch; an open ring marks relatives not shown.
+
+A person is matched by a pinned `openalex_id`, then `orcid`, then by name, where a candidate is accepted only if it shares a work with the linked advisor or student (same named candidates that all share work are taken as one split record). A unique exact name match with no shared work is kept but marked as unverified (dashed ring, ≈); anything else stays unmatched. Matches are stored in `data/lineage_people.csv` and only redone when an entry changes (unmatched people are retried after 90 days); metrics are snapshot weekly into `data/lineage_metrics.csv`. `pubtrack lineage status` lists the unverified and unmatched people, which a pinned id or ORCID settles.
+
+```bash
+pubtrack lineage sync      # match new or edited people, snapshot metrics
+pubtrack lineage status -v # how everyone was matched
+pubtrack lineage build --out site/lineage
+```
+
 ## Indices computed
 
 h, g, i10, e, contemporary h, hI norm, hI annual, annual h, AWCR, AW, AWCRpA, m quotient, hm (Schreiber 2008, fractional counting), acc1, acc2, acc5, acc10, acc20, citations and papers per author, authors per paper, citations per paper and per career year, citation velocity, and from OpenAlex the median and mean FWCI and the shares of papers in the top 10% and 1% of their field. The comparison view adds the Gini coefficient of citations across papers, authorship role shares, and 12 month projections of h and citations.
@@ -86,8 +99,9 @@ Preview the app on synthetic data: `python scripts/make_demo_store.py app/tests/
 
 ```
 authors.yml        tracked authors and settings (no secrets)
+lineage.yml        advisors and students for the lineage page
 data/              the committed CSV store
-src/pubtrack/      collector: scholar, openalex, matching, overrides, metrics, sync (planning and budget), store, cli
+src/pubtrack/      collector: scholar, openalex, matching, overrides, metrics, sync (planning and budget), store, lineage, cli
 tests/             index checks and offline end to end tests
 app/               Shiny app (app.R, R/ analytics, forecasts, statements, plots), build_bundle.R, tests/smoke.R
 reports/           R Markdown author report and its renderer

@@ -25,7 +25,7 @@ on:
         default: false
   push:
     branches: [main]
-    paths: ["authors.yml", "app/**", "reports/**", "src/**", ".github/workflows/refresh.yml"]
+    paths: ["authors.yml", "lineage.yml", "app/**", "reports/**", "src/**", ".github/workflows/refresh.yml"]
 
 permissions:
   contents: write
@@ -86,6 +86,21 @@ jobs:
           fi
           pubtrack resolve || true
           pubtrack sync "${ARGS[@]}" --summary "$GITHUB_STEP_SUMMARY" --failed-flag .fetch_failed
+      - name: Lineage (advisors and students from lineage.yml, OpenAlex metrics)
+        env:
+          OPENALEX_API_KEY: ${{ secrets.OPENALEX_API_KEY || secrets.OPENALEX }}
+          OPENALEX_MAILTO: ${{ secrets.OPENALEX_MAILTO }}
+          SKIP_SYNC: ${{ inputs.skip_sync }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$SKIP_SYNC" = "true" ] || [ ! -f lineage.yml ]; then exit 0; fi
+          # On a push, run only when lineage.yml changed; the weekly run refreshes everyone's metrics.
+          if [ "$EVENT" = "push" ]; then
+            CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" 2>/dev/null || git show --name-only --format= HEAD)
+            if ! echo "$CHANGED" | grep -q "lineage.yml"; then echo "push without lineage.yml changes"; exit 0; fi
+          fi
+          pubtrack lineage sync --summary "$GITHUB_STEP_SUMMARY" --failed-flag .fetch_failed
       - name: Commit data
         run: |
           git config user.name "pubtrack-bot"
@@ -116,6 +131,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the collector (lineage page build)
+        run: pip install -q -e .
       - uses: r-lib/actions/setup-pandoc@v2
       - uses: r-lib/actions/setup-r@v2
         with:
@@ -151,6 +171,7 @@ jobs:
           mkdir -p export && rsync -a --exclude tests app/ export/app/
           Rscript -e 'shinylive::export("export/app", "site")'
           mkdir -p site/reports && cp -r site_reports/* site/reports/
+          if [ -f lineage.yml ]; then pubtrack lineage build --out site/lineage; fi
           touch site/.nojekyll
       - uses: actions/upload-artifact@v4
         with:
