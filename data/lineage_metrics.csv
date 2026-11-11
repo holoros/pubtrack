@@ -1,32 +1,32 @@
-snapshot_date,openalex_id,display_name,works_count,cited_by_count,h_index,i10_index,two_yr_mean_citedness,institution,orcid
-2026-11-11,A5002751216,Rongxia Tiffany Li,4,30,2,1,0.0,,
-2026-11-11,A5004142371,Jianheng Zhao,27,225,9,9,1.533,University of Maine,0000-0003-0972-9941
-2026-11-11,A5008427474,Douglas A. Maguire,142,4549,41,89,2.667,Oregon State University,0000-0001-7981-3589
-2026-11-11,A5008534219,Matthew B. Russell,142,2262,25,59,1.9,,0000-0002-7044-9650
-2026-11-11,A5011502228,Aaron R. Weiskittel,365,7215,43,165,2.184,University of Maine,0000-0003-2534-4478
-2026-11-11,A5011764238,Roy L. Taylor,30,330,11,11,0.0,,
-2026-11-11,A5013894176,Alyssa R. Soucy,22,110,6,6,3.25,University of Maine,0000-0001-6029-6382
-2026-11-11,A5014938153,David W. Hann,110,3142,33,61,0.0,,
-2026-11-11,A5019169531,Marcella A. Windmuller-Campione,90,550,14,20,1.579,University of Minnesota,0000-0002-6163-7158
-2026-11-11,A5021743114,Emily J. Silver,17,251,5,5,0.143,Michigan State University,
-2026-11-11,A5026864044,Ram K. Deo,15,183,7,7,2.0,,0000-0002-0639-814X
-2026-11-11,A5029273802,Maren Granstrom,3,13,2,0,0.0,,
-2026-11-11,A5032944087,Brian J. Clough,11,133,5,5,0.0,University of Minnesota,0000-0003-2786-6309
-2026-11-11,A5034182530,Michael M. Bahe,2,12,1,1,0.0,University of Minnesota,
-2026-11-11,A5036290087,Rongxia Li,105,3019,32,67,6.5,Centers for Disease Control and Prevention,0000-0003-0664-4803
-2026-11-11,A5039937796,Aaron Meneghini,4,78,3,1,0.0,University of Maine,0000-0001-5442-3197
-2026-11-11,A5041714217,Baburam Rijal,22,159,8,4,4.0,Université du Québec à Rimouski,0000-0003-0499-7816
-2026-11-11,A5042375477,Ella R. Gray,8,19,3,0,0.667,University of Minnesota,0000-0002-4576-3250
-2026-11-11,A5048419864,Arun K. Bose,67,2280,25,44,11.087,Khulna University,0000-0001-8581-1651
-2026-11-11,A5048500579,Jereme Frank,18,217,9,9,0.0,Maine Department of Agriculture Conservation and Forestry,
-2026-11-11,A5048787894,Jereme M. Frank,3,87,2,1,6.0,Maine Department of Agriculture Conservation and Forestry,
-2026-11-11,A5060492016,Stephanie R. Patton,9,89,5,3,0.0,University of Minnesota,0000-0001-6843-0566
-2026-11-11,A5068181970,Rei Hayashi,7,86,4,3,0.0,University of Maine,
-2026-11-11,A5070465886,Mark Castle,7,88,4,4,0.0,US Forest Service,
-2026-11-11,A5070622186,Lucia Alejandra Fitts,12,139,5,4,4.25,University of Minnesota,0000-0003-3645-8710
-2026-11-11,A5077229551,Sawyer S. Scherer,7,50,3,2,1.0,,
-2026-11-11,A5079806805,Trevor K Host,7,36,3,1,1.0,,
-2026-11-11,A5080567657,Joshua J. Puhlick,49,520,12,15,2.154,The Jones Center at Ichauway,0000-0002-6695-6238
-2026-11-11,A5083380821,B. Bruce Bare,63,774,14,21,0.0,,0000-0002-1775-5333
-2026-11-11,A5089596136,Richard T. T. Forman,179,18429,49,76,1.0,Harvard University,
-2026-11-11,A5100622586,Cen Chen,24,560,12,12,1.0,Centre Hospitalier de l’Université de Montréal,
+snapshot_date,openalex_id,display_name,works_count,cited_by_count,h_index,i10_index,two_yr_mean_citedness,institution,orcid,fields
+2026-11-11,A5002751216,Rongxia Tiffany Li,4,30,2,1,0.0,,,Agricultural and Biological Sciences:7;Energy:2
+2026-11-11,A5004142371,Jianheng Zhao,27,225,9,9,1.533,University of Maine,0000-0003-0972-9941,Agricultural and Biological Sciences:43;Environmental Science:5
+2026-11-11,A5008427474,Douglas A. Maguire,142,4549,41,89,2.667,Oregon State University,0000-0001-7981-3589,Agricultural and Biological Sciences:264;Environmental Science:18
+2026-11-11,A5008534219,Matthew B. Russell,142,2262,25,59,1.9,,0000-0002-7044-9650,Agricultural and Biological Sciences:245;Environmental Science:19
+2026-11-11,A5011502228,Aaron R. Weiskittel,365,7215,43,165,2.184,University of Maine,0000-0003-2534-4478,Agricultural and Biological Sciences:749;Environmental Science:45
+2026-11-11,A5011764238,Roy L. Taylor,30,330,11,11,0.0,,,Agricultural and Biological Sciences:58
+2026-11-11,A5013894176,Alyssa R. Soucy,22,110,6,6,3.25,University of Maine,0000-0001-6029-6382,"Agricultural and Biological Sciences:14;Environmental Science:5;Social Sciences:4;Economics, Econometrics and Finance:3"
+2026-11-11,A5014938153,David W. Hann,110,3142,33,61,0.0,,,Agricultural and Biological Sciences:252;Environmental Science:6;Energy:5
+2026-11-11,A5019169531,Marcella A. Windmuller-Campione,90,550,14,20,1.579,University of Minnesota,0000-0002-6163-7158,Agricultural and Biological Sciences:105;Environmental Science:43
+2026-11-11,A5021743114,Emily J. Silver,17,251,5,5,0.143,Michigan State University,,Agricultural and Biological Sciences:16;Energy:7;Environmental Science:2
+2026-11-11,A5026864044,Ram K. Deo,15,183,7,7,2.0,,0000-0002-0639-814X,Agricultural and Biological Sciences:30;Environmental Science:9
+2026-11-11,A5029273802,Maren Granstrom,3,13,2,0,0.0,,,Agricultural and Biological Sciences:8;Environmental Science:1
+2026-11-11,A5032944087,Brian J. Clough,11,133,5,5,0.0,University of Minnesota,0000-0003-2786-6309,Agricultural and Biological Sciences:31
+2026-11-11,A5034182530,Michael M. Bahe,2,12,1,1,0.0,University of Minnesota,,Environmental Science:4;Computer Science:1;Agricultural and Biological Sciences:1
+2026-11-11,A5036290087,Rongxia Li,105,3019,32,67,6.5,Centers for Disease Control and Prevention,0000-0003-0664-4803,"Chemistry:18;Pharmacology, Toxicology and Pharmaceutics:17;Biochemistry, Genetics and Molecular Biology:11;Medicine:8"
+2026-11-11,A5039937796,Aaron Meneghini,4,78,3,1,0.0,University of Maine,0000-0001-5442-3197,Environmental Science:4;Computer Science:3;Social Sciences:2
+2026-11-11,A5041714217,Baburam Rijal,22,159,8,4,4.0,Université du Québec à Rimouski,0000-0003-0499-7816,Agricultural and Biological Sciences:42;Energy:10;Environmental Science:4
+2026-11-11,A5042375477,Ella R. Gray,8,19,3,0,0.667,University of Minnesota,0000-0002-4576-3250,Agricultural and Biological Sciences:11;Environmental Science:9
+2026-11-11,A5048419864,Arun K. Bose,67,2280,25,44,11.087,Khulna University,0000-0001-8581-1651,Agricultural and Biological Sciences:76;Environmental Science:38;Earth and Planetary Sciences:15
+2026-11-11,A5048500579,Jereme Frank,18,217,9,9,0.0,Maine Department of Agriculture Conservation and Forestry,,Agricultural and Biological Sciences:35;Engineering:8
+2026-11-11,A5048787894,Jereme M. Frank,3,87,2,1,6.0,Maine Department of Agriculture Conservation and Forestry,,Agricultural and Biological Sciences:7;Engineering:2
+2026-11-11,A5060492016,Stephanie R. Patton,9,89,5,3,0.0,University of Minnesota,0000-0001-6843-0566,Environmental Science:8;Agricultural and Biological Sciences:3;Engineering:2
+2026-11-11,A5068181970,Rei Hayashi,7,86,4,3,0.0,University of Maine,,Agricultural and Biological Sciences:17;Environmental Science:1;Social Sciences:1
+2026-11-11,A5070465886,Mark Castle,7,88,4,4,0.0,US Forest Service,,Agricultural and Biological Sciences:18;Engineering:1;Earth and Planetary Sciences:1
+2026-11-11,A5070622186,Lucia Alejandra Fitts,12,139,5,4,4.25,University of Minnesota,0000-0003-3645-8710,Agricultural and Biological Sciences:16;Environmental Science:7
+2026-11-11,A5077229551,Sawyer S. Scherer,7,50,3,2,1.0,,,Agricultural and Biological Sciences:11;Environmental Science:6
+2026-11-11,A5079806805,Trevor K Host,7,36,3,1,1.0,,,Computer Science:8;Agricultural and Biological Sciences:6;Social Sciences:3
+2026-11-11,A5080567657,Joshua J. Puhlick,49,520,12,15,2.154,The Jones Center at Ichauway,0000-0002-6695-6238,Agricultural and Biological Sciences:92;Environmental Science:10
+2026-11-11,A5083380821,B. Bruce Bare,63,774,14,21,0.0,,0000-0002-1775-5333,Agricultural and Biological Sciences:78;Decision Sciences:21;Energy:18
+2026-11-11,A5089596136,Richard T. T. Forman,179,18429,49,76,1.0,Harvard University,,Environmental Science:231
+2026-11-11,A5100622586,Cen Chen,24,560,12,12,1.0,Centre Hospitalier de l’Université de Montréal,,Agricultural and Biological Sciences:14;Environmental Science:10
